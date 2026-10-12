@@ -1,0 +1,14 @@
+# 抖音续火花 - Python 依赖
+# 只保留代码里真实 import 的包：requests / paramiko / cryptography / python-dotenv
+# 在实际代码中零引用（.env 由 app.py 的 _load_env() 手工解析），
+# 删掉可显著缩小攻击面（尤其 paramiko 是完整的 SSH 客户端实现）。
+fastapi>=0.110.0
+uvicorn>=0.28.0
+playwright>=1.42.0
+# 必须 >=2.0：代码用的是新版 `from playwright_stealth import Stealth` API。
+# 1.x 只有旧版 stealth_sync，注入后会让抖音页面报 17 个 JS 错误、聊天列表
+# 渲染不出来（见 core/browser.py 的说明），因此旧版本是「装了反而有害」。
+playwright-stealth>=2.0.0
+apscheduler>=3.10.4
+python-multipart>=0.0.9
+pydantic>=2.6.0

@@ -1,0 +1,160 @@
+/* Reference v2.3 glass and motion, with the current 2.5 QR interface preserved.
+   Ordinary glass, navigation and button values live in the original index CSS. */
+/* Credential cards and buttons inherit the same .card / .el-button material
+   as the other views; only QR layout and state motion are specialized here. */
+body.reference-theme #app .credentials-view { --silk-ease: cubic-bezier(.22, .61, .36, 1); }
+body.reference-theme #app .credentials-view { max-width: 680px; }
+body.reference-theme #app .credential-summary,
+body.reference-theme #app .qr-login-panel { width: 100%; max-width: none !important; border-radius: 24px !important; padding: 24px !important; }
+body.reference-theme #app .credentials-view .stagger-item {
+  animation: silk-card-enter .55s var(--silk-ease) both;
+}
+@keyframes silk-card-enter { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
+body.reference-theme #app .qr-login-panel h3 { font-size: 19px !important; color: var(--text-main); letter-spacing: .02em; }
+body.reference-theme #app .qr-stepper {
+  position: relative; margin: 22px 0 24px; padding: 5px 0 13px; isolation: isolate;
+}
+body.reference-theme #app .qr-step-highlight {
+  position: absolute; top: 0; left: 0; width: 25%; height: calc(100% - 13px); z-index: -1;
+  border: 1px solid rgba(255, 255, 255, .25); border-radius: 13px;
+  background: rgba(255, 255, 255, .12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
+  opacity: 0; transform: translateX(calc(var(--step-index) * 100%));
+  transition: transform 420ms var(--silk-ease), opacity 280ms ease;
+  will-change: transform;
+}
+body.reference-theme #app .qr-stepper.has-stage .qr-step-highlight { opacity: 1; }
+body.reference-theme #app .qr-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; list-style: none; }
+body.reference-theme #app .qr-steps li {
+  display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 5px;
+  border: 0; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--text-regular); white-space: nowrap;
+  transition: color .35s ease;
+}
+body.reference-theme #app .qr-step-number {
+  display: inline-flex; align-items: center; justify-content: center; width: 23px; height: 23px; flex-shrink: 0;
+  border: 1px solid var(--border-dark); border-radius: 50%; font: 11px/1 var(--font-mono); color: var(--text-main);
+  transition: border-color .35s ease, background .35s ease, color .35s ease;
+}
+body.reference-theme #app .qr-steps li.active { color: var(--text-main); font-weight: 600; }
+body.reference-theme #app .qr-steps li.active .qr-step-number { color: var(--text-main); border-color: rgba(255, 255, 255, .45); background: rgba(255, 255, 255, .18); }
+body.reference-theme #app .qr-steps li.complete { color: var(--color-success); }
+body.reference-theme #app .qr-steps li.complete .qr-step-number { border-color: var(--color-success); color: var(--color-success); }
+body.reference-theme #app .qr-step-rail { position: absolute; bottom: 0; left: 12.5%; right: 12.5%; height: 2px; overflow: hidden; background: rgba(255, 255, 255, .15); }
+body.reference-theme #app .qr-step-progress { height: 100%; background: linear-gradient(90deg, var(--color-accent), #5ac8fa); transform-origin: left; transform: scaleX(var(--step-progress)); transition: transform 420ms var(--silk-ease); }
+body.reference-theme #app .qr-code-frame {
+  min-height: 252px !important; border-radius: 20px !important;
+  background: rgba(255, 255, 255, .12) !important;
+  border-color: rgba(255, 255, 255, .25) !important;
+  box-shadow: inset 0 1px 10px rgba(0, 0, 0, .04);
+}
+body.reference-theme #app .qr-code-frame.has-image { background: #fff !important; box-shadow: 0 12px 35px rgba(0, 0, 0, .2); }
+body.reference-theme #app .qr-code-frame img { animation: none !important; transition: none !important; transform: none !important; }
+body.reference-theme #app .qr-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+body.reference-theme #app .qr-placeholder p { color: var(--text-regular) !important; padding-bottom: 0 !important; }
+body.reference-theme #app .qr-idle-mark { display: grid; place-items: center; width: 68px; height: 68px; border-radius: 20px; color: var(--text-main); background: rgba(255, 255, 255, .08); }
+body.reference-theme #app .qr-idle-mark.is-working { animation: silk-breathe 3s ease-in-out infinite; }
+@keyframes silk-breathe { 0%,100% { opacity: .65; } 50% { opacity: 1; } }
+body.reference-theme #app .qr-success-mark { width: 72px; height: 72px; stroke: var(--color-success); stroke-width: 2; }
+body.reference-theme #app .qr-success-mark circle { stroke-dasharray: 189; animation: silk-check-ring .65s var(--silk-ease) both; }
+body.reference-theme #app .qr-success-mark path { stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 44; animation: silk-check-draw .45s .2s var(--silk-ease) both; }
+@keyframes silk-check-ring { from { stroke-dashoffset: 189; opacity: .25; } to { stroke-dashoffset: 0; opacity: 1; } }
+@keyframes silk-check-draw { from { stroke-dashoffset: 44; } to { stroke-dashoffset: 0; } }
+/* Keep the leaving content mounted while its whole layout space folds away.
+   Stable wrappers avoid replaying the entrance on ordinary progress updates. */
+body.reference-theme #app .status-motion-shell {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  opacity: 1;
+  transform: none;
+  transform-origin: center top;
+}
+body.reference-theme #app .status-motion-clip { display: flow-root; min-height: 0; overflow: visible; }
+body.reference-theme #app .notice-pop-enter-active > .status-motion-clip,
+body.reference-theme #app .notice-pop-leave-active > .status-motion-clip { overflow: hidden; }
+body.reference-theme #app .notice-pop-enter-active {
+  transition: grid-template-rows 480ms cubic-bezier(.16, 1, .3, 1),
+              opacity 480ms cubic-bezier(.16, 1, .3, 1),
+              transform 480ms cubic-bezier(.16, 1, .3, 1);
+}
+body.reference-theme #app .notice-pop-leave-active {
+  pointer-events: none;
+  transition: grid-template-rows 340ms cubic-bezier(.4, 0, .2, 1),
+              opacity 340ms cubic-bezier(.4, 0, .2, 1),
+              transform 340ms cubic-bezier(.4, 0, .2, 1);
+}
+body.reference-theme #app .notice-pop-enter-from {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(6px) scale(.986);
+}
+body.reference-theme #app .notice-pop-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-4px) scale(.986);
+}
+@media (prefers-reduced-motion: reduce) {
+  body.reference-theme #app .status-motion-shell { transition: none !important; transform: none !important; }
+}
+
+
+/* Existing background controls adopt the reference glass appearance. */
+body.reference-theme .motion-toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .12);
+  color: #1D1D1F; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font: 12px/1.4 var(--font-family); cursor: pointer;
+  transition: background .25s ease, transform .25s cubic-bezier(.34, 1.56, .64, 1);
+}
+body.reference-theme .motion-toggle:hover:not(:disabled) { background: rgba(255, 255, 255, .22); transform: scale(1.02); }
+body.reference-theme .motion-toggle:active:not(:disabled) { transform: scale(.98); }
+body.reference-theme .motion-toggle:disabled { opacity: .5; cursor: default; }
+body.reference-theme .login-motion-control { position: fixed; top: 12px; right: 16px; z-index: 10010; }
+body.reference-theme :is(button, a, input):focus-visible { outline: 2px solid #007aff !important; outline-offset: 3px; }
+body.reference-theme .side-nav .nav-btn:focus-visible { outline-offset: -3px; }
+
+/* Inline transform variables preserve the reference pointer formula without
+   allowing the stable QR image / verification panel to move. */
+body.reference-theme #app [data-reference-tilt],
+body.reference-theme .login-card[data-reference-tilt] {
+  transform: var(--reference-tilt, none) !important;
+  transform-style: preserve-3d;
+  transition: transform .25s cubic-bezier(.22, 1, .36, 1), box-shadow .3s ease, background .3s ease !important;
+}
+body.reference-theme #app [data-reference-tilt]:hover,
+body.reference-theme .login-card[data-reference-tilt]:hover {
+  transform: var(--reference-tilt, none) !important;
+  box-shadow: var(--reference-tilt-shadow, 0 12px 32px rgba(0, 0, 0, .1)) !important;
+}
+body.reference-theme .card-3d { perspective: 800px; }
+
+@media (max-width: 768px) {
+  /* Preserve all six targets; the original 56px minima can exceed 375px. */
+  body.reference-theme .side-nav { padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) !important; gap: 6px !important; }
+  body.reference-theme .side-nav .nav-btn {
+    flex: 1 1 0 !important; min-width: 0 !important; width: auto !important;
+    padding: 8px 3px !important; min-height: 52px;
+  }
+  body.reference-theme .topbar-inner { padding-inline: 12px; }
+  body.reference-theme .topbar-right { gap: 7px; }
+  body.reference-theme .brand-title { font-size: 14px; }
+  body.reference-theme .motion-toggle { width: 44px; padding: 0; }
+  body.reference-theme .motion-toggle span { display: none; }
+  body.reference-theme .status-pill { font-size: 10px; padding: 4px 7px; }
+  body.reference-theme .topbar-right > .muted { display: none; }
+  body.reference-theme #app .credential-summary, body.reference-theme #app .qr-login-panel { padding: 18px 16px !important; border-radius: 20px !important; }
+  body.reference-theme #app .qr-steps li { flex-direction: column; gap: 6px; padding: 8px 1px; font-size: 11px; }
+  body.reference-theme #app .qr-stepper { margin: 18px 0 20px; }
+  body.reference-theme #app .qr-code-frame { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.reference-theme *, body.reference-theme *::before, body.reference-theme *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+  body.reference-theme #app [data-reference-tilt], body.reference-theme #app [data-reference-tilt]:hover,
+  body.reference-theme .login-card[data-reference-tilt], body.reference-theme .login-card[data-reference-tilt]:hover { transform: none !important; }
+  body.reference-theme #app .credentials-view .stagger-item { opacity: 1; translate: none; }
+  body.reference-theme #app .qr-step-highlight { will-change: auto; }
+}

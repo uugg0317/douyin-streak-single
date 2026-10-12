@@ -1,0 +1,419 @@
+{
+  "format_version": 1,
+  "source_kind": "existing local 8003 source files",
+  "hash_algorithm": "SHA-256",
+  "function_hash_encoding": "exact source segment (including its line endings), encoded UTF-8; decorators absent in these copied functions",
+  "changes": {
+    "desktop.py": [
+      "Truncate immediately after LoginDesktopManager class",
+      "Rewrite only core.login/core.cookies imports to package-relative modules"
+    ],
+    "identity.py": [
+      "Truncate before userLogin",
+      "Remove unused rich Console import/initialization and CLI dependency imports",
+      "Append unchanged normalize_unique_id pure dependency from utils/config.py"
+    ],
+    "cookies.py": [
+      "Rewrite only AUTH_COOKIE_NAMES import to .cookie_constants"
+    ],
+    "cookie_constants.py": [
+      "Extract unchanged AUTH_COOKIE_NAMES assignment"
+    ]
+  },
+  "files": {
+    "desktop.py": {
+      "source_file": "login_desktop_server.py",
+      "source_file_sha256": "e7ef09afd4348deb36e1942da917db4ba3d942bbfda937a89a54a343de96452c",
+      "copied_file_sha256": "827f8216c63679b81bb7a9163780454b9ea025d74b7d85f347f58c31d54cd4b5",
+      "functions": {
+        "_purge_login_data": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "e5e1ece6f36cf8cee8d8a55e8f92c2261caf0c9c8bd80ae98a09dc040330def3",
+          "copied_sha256": "e5e1ece6f36cf8cee8d8a55e8f92c2261caf0c9c8bd80ae98a09dc040330def3",
+          "identical": true
+        },
+        "_api_bind_address": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "6d9e92585f17e7f579d219754614b01ffe596504b80e432cf61837815ea30dc2",
+          "copied_sha256": "6d9e92585f17e7f579d219754614b01ffe596504b80e432cf61837815ea30dc2",
+          "identical": true
+        },
+        "_is_loopback_bind": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "7bbb82a053be17c66b7e4ec0f91d0e8918a7fd20decdefc1e9cdb4b9603be7d1",
+          "copied_sha256": "7bbb82a053be17c66b7e4ec0f91d0e8918a7fd20decdefc1e9cdb4b9603be7d1",
+          "identical": true
+        },
+        "_load_api_token": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "012b05363e85f00517be5e9102e7f2bc1ca1af7100df9f207d2886c7e9ba0917",
+          "copied_sha256": "012b05363e85f00517be5e9102e7f2bc1ca1af7100df9f207d2886c7e9ba0917",
+          "identical": true
+        },
+        "LoginNetworkError.__init__": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "f6278bda6360d104b6ed45bb10b9b8ab1f2f2212b322b9b36534dfb086df9f71",
+          "copied_sha256": "f6278bda6360d104b6ed45bb10b9b8ab1f2f2212b322b9b36534dfb086df9f71",
+          "identical": true
+        },
+        "_safe_proxy_label": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "0f798b46f06dd0a86b6b6e6d4bf6549c2320cef54ea6faafc6758601a4b3f230",
+          "copied_sha256": "0f798b46f06dd0a86b6b6e6d4bf6549c2320cef54ea6faafc6758601a4b3f230",
+          "identical": true
+        },
+        "_probe_login_target": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "790e1b5f3c1cad69f51d59f358c8542845cf1e10c918f23183909327a314388a",
+          "copied_sha256": "790e1b5f3c1cad69f51d59f358c8542845cf1e10c918f23183909327a314388a",
+          "identical": true
+        },
+        "LoginDesktopManager.__init__": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "9aa8c7b6ac9a1885778c943653f6c827beeb7c7cb78b2d9babfde160e307d599",
+          "copied_sha256": "9aa8c7b6ac9a1885778c943653f6c827beeb7c7cb78b2d9babfde160e307d599",
+          "identical": true
+        },
+        "LoginDesktopManager._network_payload": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "a7d903e0ff384902bdeb0812f4200790b7dc5bdee2db2961f35aae61efea3fc5",
+          "copied_sha256": "a7d903e0ff384902bdeb0812f4200790b7dc5bdee2db2961f35aae61efea3fc5",
+          "identical": true
+        },
+        "LoginDesktopManager._invalidate_network_route": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "6f21612a360be961bdf4aa6c2588260c3c4adf569416018d324b76e0daa3a36b",
+          "copied_sha256": "6f21612a360be961bdf4aa6c2588260c3c4adf569416018d324b76e0daa3a36b",
+          "identical": true
+        },
+        "LoginDesktopManager._select_network_route": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "d5d138a21ffdce4a89610bb755b31ee71c04ae5e01c950f466bcf88d0fac0adc",
+          "copied_sha256": "d5d138a21ffdce4a89610bb755b31ee71c04ae5e01c950f466bcf88d0fac0adc",
+          "identical": true
+        },
+        "LoginDesktopManager.network_preflight": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "700dc8bca2f74550d463110d96481f76aa74a18cd7e0940430401c2eb7f590f9",
+          "copied_sha256": "700dc8bca2f74550d463110d96481f76aa74a18cd7e0940430401c2eb7f590f9",
+          "identical": true
+        },
+        "LoginDesktopManager.mark_activity": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "4d75e54f066f0f39fe1f98dfd166066a22f86d02a3c9a2dd6fe86bf558039a60",
+          "copied_sha256": "4d75e54f066f0f39fe1f98dfd166066a22f86d02a3c9a2dd6fe86bf558039a60",
+          "identical": true
+        },
+        "LoginDesktopManager.start_idle_monitor": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "382711ffe810cfa31975826a5ae00840fb6ed0e8b16f21ed1844d255ad573c6d",
+          "copied_sha256": "382711ffe810cfa31975826a5ae00840fb6ed0e8b16f21ed1844d255ad573c6d",
+          "identical": true
+        },
+        "LoginDesktopManager.stop_idle_monitor": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "73e917033fcccde44e73eb82f912fda4f0b10800167112946f0be5bb477533ef",
+          "copied_sha256": "73e917033fcccde44e73eb82f912fda4f0b10800167112946f0be5bb477533ef",
+          "identical": true
+        },
+        "LoginDesktopManager._idle_monitor": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "bdcd32bc2a7dd87d39863c343fe4d913457eec90038c6240457fdce84471ae81",
+          "copied_sha256": "bdcd32bc2a7dd87d39863c343fe4d913457eec90038c6240457fdce84471ae81",
+          "identical": true
+        },
+        "LoginDesktopManager.schedule_stop_after_export": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "e17bcc461cecad507149e5c8be6074503ec6e1e5e3eb35d312ae2671e14f3a3b",
+          "copied_sha256": "e17bcc461cecad507149e5c8be6074503ec6e1e5e3eb35d312ae2671e14f3a3b",
+          "identical": true
+        },
+        "LoginDesktopManager.reduce_page_activity": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "aef1f71de62d2048830d50b11fec92134c82354ddf9d8a5c99bf038306df45d9",
+          "copied_sha256": "aef1f71de62d2048830d50b11fec92134c82354ddf9d8a5c99bf038306df45d9",
+          "identical": true
+        },
+        "LoginDesktopManager.start": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "45dc6df1469d9b4f25f7e2843fbbfb9a13d6450216ef8f31aac553cdec4ecb92",
+          "copied_sha256": "45dc6df1469d9b4f25f7e2843fbbfb9a13d6450216ef8f31aac553cdec4ecb92",
+          "identical": true
+        },
+        "LoginDesktopManager._context_is_closed": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "4e24ec431862bff904d73cb9878933a3aa398c6249ddcc78951f0d91874fc06b",
+          "copied_sha256": "4e24ec431862bff904d73cb9878933a3aa398c6249ddcc78951f0d91874fc06b",
+          "identical": true
+        },
+        "LoginDesktopManager._get_active_page": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "c3b4687d1fa06f4c6f1ceb95f022bf65d723f2afdc7e60c3a3b72967e8bf97a1",
+          "copied_sha256": "c3b4687d1fa06f4c6f1ceb95f022bf65d723f2afdc7e60c3a3b72967e8bf97a1",
+          "identical": true
+        },
+        "LoginDesktopManager.stop": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "879a0e57208402b90f13bf1c525cca351cffbd654f07009c5ed99c145796037b",
+          "copied_sha256": "879a0e57208402b90f13bf1c525cca351cffbd654f07009c5ed99c145796037b",
+          "identical": true
+        },
+        "LoginDesktopManager.reset": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "847aa3fb3609921f1cbbac82b7fb98b9473fd984f5dee951d641b6186cffc868",
+          "copied_sha256": "847aa3fb3609921f1cbbac82b7fb98b9473fd984f5dee951d641b6186cffc868",
+          "identical": true
+        },
+        "LoginDesktopManager.ensure_running": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "b5e238adbbe7e6fd3412ea789929da15aec7cde1036c4f211bc0ee396d25f06b",
+          "copied_sha256": "b5e238adbbe7e6fd3412ea789929da15aec7cde1036c4f211bc0ee396d25f06b",
+          "identical": true
+        },
+        "LoginDesktopManager.focus_browser": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "335dd8002f22aba5decdacf9b8ce1bcd93047cbc626ca7bb2310b524f083f67f",
+          "copied_sha256": "335dd8002f22aba5decdacf9b8ce1bcd93047cbc626ca7bb2310b524f083f67f",
+          "identical": true
+        },
+        "LoginDesktopManager.status": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "a69c2286999a2020d1ee03a1b7868da6a20f28c97f65f3e3a8624bf7a176778c",
+          "copied_sha256": "a69c2286999a2020d1ee03a1b7868da6a20f28c97f65f3e3a8624bf7a176778c",
+          "identical": true
+        },
+        "LoginDesktopManager.open_login": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "d55356b94ae362645198b7c8589db368d2c4cba935be31a98da48edad7df2baf",
+          "copied_sha256": "d55356b94ae362645198b7c8589db368d2c4cba935be31a98da48edad7df2baf",
+          "identical": true
+        },
+        "LoginDesktopManager._login_page_state": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "c8d9cc1900e115c97c7a53508d7047ca1d52c6fc5ac6686e0e5dbeb938db5c1e",
+          "copied_sha256": "c8d9cc1900e115c97c7a53508d7047ca1d52c6fc5ac6686e0e5dbeb938db5c1e",
+          "identical": true
+        },
+        "LoginDesktopManager.clear_login_state": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "a4b2e06cacb084a385fa7ba0052ded273dc4409d0c487393b40f408ad20e1fa2",
+          "copied_sha256": "a4b2e06cacb084a385fa7ba0052ded273dc4409d0c487393b40f408ad20e1fa2",
+          "identical": true
+        },
+        "LoginDesktopManager._clear_login_cookies": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "a9a77882bf03fda7daefebac4eb5adc400383fa4b5dda428dfc0b608960fdbd1",
+          "copied_sha256": "a9a77882bf03fda7daefebac4eb5adc400383fa4b5dda428dfc0b608960fdbd1",
+          "identical": true
+        },
+        "LoginDesktopManager._login_page_url": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "ef266453e6dfd8f62a4d2282b13ba2ca0aef0dc421e7b5988f3b95ee60465827",
+          "copied_sha256": "ef266453e6dfd8f62a4d2282b13ba2ca0aef0dc421e7b5988f3b95ee60465827",
+          "identical": true
+        },
+        "LoginDesktopManager._goto_login_page": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "ebf57c82d35c7592d5fdb209495cf94e09fa10f4cfa674af260689c6bc6b29e7",
+          "copied_sha256": "ebf57c82d35c7592d5fdb209495cf94e09fa10f4cfa674af260689c6bc6b29e7",
+          "identical": true
+        },
+        "LoginDesktopManager._ensure_login_form_locked": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "76ce6dd2634e416cf563455ddf4a131757a78187061d0fa4670b2d05eee2d2bb",
+          "copied_sha256": "76ce6dd2634e416cf563455ddf4a131757a78187061d0fa4670b2d05eee2d2bb",
+          "identical": true
+        },
+        "LoginDesktopManager.refresh_login_qr": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "c6c53508f591ebf41e6b26c547730e333e641c13c88a086da2533a8dd30e6574",
+          "copied_sha256": "c6c53508f591ebf41e6b26c547730e333e641c13c88a086da2533a8dd30e6574",
+          "identical": true
+        },
+        "LoginDesktopManager._extract_login_qr": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "388419a4e15c5028920221378c4693e39427329c93f520ad12fc532d911035cd",
+          "copied_sha256": "388419a4e15c5028920221378c4693e39427329c93f520ad12fc532d911035cd",
+          "identical": true
+        },
+        "LoginDesktopManager._qr_payload": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "7c4e363e25731ee5cfff11d0ab96fb110bd8a11768c73d93cbbb75c002956301",
+          "copied_sha256": "7c4e363e25731ee5cfff11d0ab96fb110bd8a11768c73d93cbbb75c002956301",
+          "identical": true
+        },
+        "LoginDesktopManager._refresh_login_qr_locked": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "8b0b4f11cc0540ba6e32db0101362a1ccadcc885173562446571384947157253",
+          "copied_sha256": "8b0b4f11cc0540ba6e32db0101362a1ccadcc885173562446571384947157253",
+          "identical": true
+        },
+        "LoginDesktopManager.export_if_ready": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "dc0a5124c3a438866ff93508891d4b9fba26730b42b3d66fb5f5a458161928c5",
+          "copied_sha256": "dc0a5124c3a438866ff93508891d4b9fba26730b42b3d66fb5f5a458161928c5",
+          "identical": true
+        },
+        "LoginDesktopManager.export": {
+          "source_file": "login_desktop_server.py",
+          "source_sha256": "62e0671b37e379eb17df2eca2c9899f4dd1e91128abe5a6923850a65866fdb9e",
+          "copied_sha256": "62e0671b37e379eb17df2eca2c9899f4dd1e91128abe5a6923850a65866fdb9e",
+          "identical": true
+        }
+      }
+    },
+    "identity.py": {
+      "source_file": "core/login.py",
+      "source_file_sha256": "8798aad93e24e108ac0b5d30107a82c55d1f95a97d53f1687456f0c7e6f5c9d9",
+      "copied_file_sha256": "b5e5bde95ec6ba57ddbbecb70703c3107a19be75243a2798e409fef83fc08f0e",
+      "functions": {
+        "identity_from_card_text": {
+          "source_file": "core/login.py",
+          "source_sha256": "fd56f9a84c051b239b0ee41c962e4ab7277746498ad2ea64d8be9e1a904b1f31",
+          "copied_sha256": "fd56f9a84c051b239b0ee41c962e4ab7277746498ad2ea64d8be9e1a904b1f31",
+          "identical": true
+        },
+        "_first_visible_text": {
+          "source_file": "core/login.py",
+          "source_sha256": "48e9030f827610627be9ccdc9af14839d9d481d169adc55db858ff48ca16e4dd",
+          "copied_sha256": "48e9030f827610627be9ccdc9af14839d9d481d169adc55db858ff48ca16e4dd",
+          "identical": true
+        },
+        "_login_form_visible": {
+          "source_file": "core/login.py",
+          "source_sha256": "3d61c41830980de6abcd95b68cc1b69cacd0e10e54b829da249a8da1b2b106d5",
+          "copied_sha256": "3d61c41830980de6abcd95b68cc1b69cacd0e10e54b829da249a8da1b2b106d5",
+          "identical": true
+        },
+        "_wait_for_identity_card": {
+          "source_file": "core/login.py",
+          "source_sha256": "038514e3f2777f5b829d0a3c11a1309a1b04dd23f34d64f10cfbfb8015b92f7b",
+          "copied_sha256": "038514e3f2777f5b829d0a3c11a1309a1b04dd23f34d64f10cfbfb8015b92f7b",
+          "identical": true
+        },
+        "_wait_for_visible_text": {
+          "source_file": "core/login.py",
+          "source_sha256": "5ab598d6f75be02b62e1f1b57abb2fed5afae6125e56b2f1ff87218a324bc84c",
+          "copied_sha256": "5ab598d6f75be02b62e1f1b57abb2fed5afae6125e56b2f1ff87218a324bc84c",
+          "identical": true
+        },
+        "wait_for_logged_in_identity": {
+          "source_file": "core/login.py",
+          "source_sha256": "d9973c35a0a7f3d8fda79cc51181c732aa512bdc96f3b71b3393f5b1c984a1f6",
+          "copied_sha256": "d9973c35a0a7f3d8fda79cc51181c732aa512bdc96f3b71b3393f5b1c984a1f6",
+          "identical": true
+        },
+        "collect_login_result": {
+          "source_file": "core/login.py",
+          "source_sha256": "e477a7846779a8cf621412db52ee613ccd35aa9015aa9f7bc0f4261aaa0b29b9",
+          "copied_sha256": "e477a7846779a8cf621412db52ee613ccd35aa9015aa9f7bc0f4261aaa0b29b9",
+          "identical": true
+        },
+        "normalize_unique_id": {
+          "source_file": "utils/config.py",
+          "source_sha256": "f552e3a9881fe7e51b2ffd8d937cf1bfad9a3328492548caf96cb48dcfed36e6",
+          "copied_sha256": "f552e3a9881fe7e51b2ffd8d937cf1bfad9a3328492548caf96cb48dcfed36e6",
+          "identical": true
+        }
+      }
+    },
+    "cookies.py": {
+      "source_file": "core/cookies.py",
+      "source_file_sha256": "f61b4fb89ecb81af484427228650076e040d12dda9ceb4bc86579fc5ab731cf5",
+      "copied_file_sha256": "f3777901c2b6bd9e9d8e3c62d8c999503f9a36e6c574702bdf40170beb4ab92d",
+      "functions": {
+        "CookieParseError.__init__": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "aa2f5f529e67c15744ea8ca9f9bcb1bd11a76ab1c708446dcf4df1e75f4e7a64",
+          "copied_sha256": "aa2f5f529e67c15744ea8ca9f9bcb1bd11a76ab1c708446dcf4df1e75f4e7a64",
+          "identical": true
+        },
+        "_strip_quotes": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "b6565ba4a398720a3bbd306ff5f4ef45151ea942d10cc8e60b5cfb1ff16a88ac",
+          "copied_sha256": "b6565ba4a398720a3bbd306ff5f4ef45151ea942d10cc8e60b5cfb1ff16a88ac",
+          "identical": true
+        },
+        "normalize_cookie": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "b3ccc437bbcdd20aa6aee8df68bdabafcf08af8f9ab811ca96f1f80d0dd02224",
+          "copied_sha256": "b3ccc437bbcdd20aa6aee8df68bdabafcf08af8f9ab811ca96f1f80d0dd02224",
+          "identical": true
+        },
+        "_parse_json_cookies": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "1e5cbf9523f0ad61cca8f4b3426b1964f54534fc15f5e0da068dbce569cb6a68",
+          "copied_sha256": "1e5cbf9523f0ad61cca8f4b3426b1964f54534fc15f5e0da068dbce569cb6a68",
+          "identical": true
+        },
+        "_parse_header_cookies": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "d2ea3a106099e64f1dd07d1bcb86017a73c782a04e87c99ac87ed824b00e37cc",
+          "copied_sha256": "d2ea3a106099e64f1dd07d1bcb86017a73c782a04e87c99ac87ed824b00e37cc",
+          "identical": true
+        },
+        "parse_cookie_input": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "dc4654719129e12571bdb9cc9a4d8f39dbfeecb1f66b69d535cc9241af25c576",
+          "copied_sha256": "dc4654719129e12571bdb9cc9a4d8f39dbfeecb1f66b69d535cc9241af25c576",
+          "identical": true
+        },
+        "auth_cookie_names": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "75c18d30b289c966b3c796bf03f98c4b731ca67763fe0286e8828954f3df4dc9",
+          "copied_sha256": "75c18d30b289c966b3c796bf03f98c4b731ca67763fe0286e8828954f3df4dc9",
+          "identical": true
+        },
+        "require_auth_cookies": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "53592daaf04a681e3156e1c4bca7fe213ba0d6075e1da95ca8bc416cb5b4b29a",
+          "copied_sha256": "53592daaf04a681e3156e1c4bca7fe213ba0d6075e1da95ca8bc416cb5b4b29a",
+          "identical": true
+        },
+        "cookie_summary": {
+          "source_file": "core/cookies.py",
+          "source_sha256": "6fb466544841ea04a343d603a0803f62199e500781e44727c4ce2ee9f204c5ef",
+          "copied_sha256": "6fb466544841ea04a343d603a0803f62199e500781e44727c4ce2ee9f204c5ef",
+          "identical": true
+        }
+      }
+    },
+    "cookie_constants.py": {
+      "source_file": "core/streak_state.py",
+      "source_file_sha256": "376ccfa959e51b0c8ea79cee10f923efe9461b61456be6826de11312204b620f",
+      "copied_file_sha256": "1318888a662c875e6bd76f9bc0d1dd445c4d9c0a08aa0992f10526b1c36c0eec",
+      "functions": {}
+    }
+  },
+  "additional_dependencies": [
+    {
+      "name": "normalize_unique_id",
+      "source_file": "utils/config.py",
+      "source_file_sha256": "e5799e7420024045c50e6de498754c58e39a5ee58f4fea7238efb21e35845825",
+      "source_lines": [
+        336,
+        340
+      ],
+      "function_sha256": "f552e3a9881fe7e51b2ffd8d937cf1bfad9a3328492548caf96cb48dcfed36e6"
+    }
+  ],
+  "LoginDesktopManager": {
+    "source_lines": [
+      199,
+      851
+    ],
+    "source_sha256": "473c99a1e20b1a46b5f953aa470f125df56fcaf40f2e156da47fa7a39f64c136",
+    "copied_sha256": "473c99a1e20b1a46b5f953aa470f125df56fcaf40f2e156da47fa7a39f64c136",
+    "identical": true,
+    "method_count": 32
+  },
+  "AUTH_COOKIE_NAMES": {
+    "source_lines": [
+      48,
+      55
+    ],
+    "source_sha256": "1318888a662c875e6bd76f9bc0d1dd445c4d9c0a08aa0992f10526b1c36c0eec",
+    "copied_sha256": "1318888a662c875e6bd76f9bc0d1dd445c4d9c0a08aa0992f10526b1c36c0eec",
+    "identical": true
+  }
+}

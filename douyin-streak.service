@@ -1,0 +1,47 @@
+[Unit]
+Description=Douyin Cloud Streak - 抖音续火花自动服务
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=douyin
+Group=douyin
+WorkingDirectory=/opt/douyin-streak
+Environment="PATH=/opt/douyin-streak/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="DATA_DIR=/opt/douyin-streak/data"
+Environment="ENV_FILE_PATH=/opt/douyin-streak/data/service.env"
+Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/douyin-streak/.cache/ms-playwright"
+# 浏览器不常驻：每天 23:30 预启动（发送前30分钟），00:00 发送，发送完毕立即关闭
+Environment="KEEP_BROWSER_ALWAYS=false"
+Environment="KEEP_PREWARMED_SECONDS=0"
+Environment="PREWARM_LEAD_MINUTES=30"
+ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1366x768x24" /opt/douyin-streak/venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+# ── 安全加固（非 root + 最小权限） ──
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 完整 Chromium 会在 $HOME/.config 下写崩溃上报数据库（Crashpad），
+# 不放开会在启动瞬间 SIGTRAP 崩溃（扫码提取即走完整 Chromium）。
+ReadWritePaths=/opt/douyin-streak/data /opt/douyin-streak/.cache/ms-playwright /opt/douyin-streak/.config
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Chromium JIT 需要可写可执行内存，不开启 MemoryDenyWriteExecute
+MemoryDenyWriteExecute=false
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

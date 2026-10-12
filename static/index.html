@@ -1,0 +1,3597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>抖音自动续火花 2.5 · Douyin Cloud Streak</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png" />
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/static/favicon.png" />
+  <link rel="stylesheet" href="/static/vendor/element-plus.css" />
+  <style>
+    /* ==========================================================================
+       Apple 风格设计体系 (Apple HIG / iOS-inspired)
+       ========================================================================== */
+    :root {
+      --bg-page: transparent;
+      --bg-surface: rgba(0, 0, 0, 0.25);
+      --bg-surface-subtle: rgba(255, 255, 255, 0.12);
+      --bg-surface-hover: rgba(0, 0, 0, 0.35);
+
+      --border-color: rgba(255, 255, 255, 0.15);
+      --border-dark: rgba(255, 255, 255, 0.25);
+      --border-focus: #007AFF;
+
+      --text-main: #1D1D1F;
+      --text-regular: #424245;
+      --text-muted: #e5e5ea;
+      --text-light: #e5e5ea;
+
+      --color-primary: #1D1D1F;
+      --color-accent: #007AFF;
+      --color-fire: #ff6b35;
+      --color-success: #34c759;
+      --color-warning: #ff9500;
+      --color-danger: #ff3b30;
+
+      --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", "Segoe UI", Roboto, "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+      --radius-sm: 10px;
+      --radius-md: 16px;
+      --radius-lg: 20px;
+      --radius-full: 9999px;
+
+      --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+      --shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.06);
+      --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
+      background-color: rgba(0, 0, 0, 0.25);
+      font-family: var(--font-family);
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.5;
+    }
+
+
+
+    /* 大背景暗色叠加层，降低亮度，增强文字对比度 */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* 滚动条 */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: var(--radius-full); }
+
+    /* ==========================================================================
+       顶部导航栏 (Apple Frosted Glass)
+       ========================================================================== */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-bottom: 1px solid transparent;
+      width: 100%;
+      transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                  backdrop-filter 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                  border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .topbar.scrolled {
+      background: rgba(245, 245, 247, 0.8);
+      backdrop-filter: saturate(180%) blur(30px);
+      -webkit-backdrop-filter: saturate(180%) blur(30px);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+    }
+    .topbar-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: nowrap;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-fire);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      letter-spacing: -0.01em;
+    }
+    .status-pill.status-ok {
+      background: rgba(52, 199, 89, 0.12);
+      color: #248a3d;
+    }
+    .status-pill.status-bad {
+      background: rgba(255, 59, 48, 0.12);
+      color: #d70015;
+    }
+    .status-pill.status-warn { background: rgba(180, 83, 9, 0.10); color: #92400e; }
+    .status-detail { font-size: 12px; line-height: 1.6; color: var(--text-regular); margin: 8px 0 0; }
+    .qr-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0; margin: 0 0 18px; list-style: none; }
+    .qr-steps li { min-width: 0; padding-top: 8px; border-top: 3px solid var(--border-color); font-size: 12px; line-height: 1.6; color: var(--text-regular); }
+    .qr-steps li.active { border-color: var(--color-primary, #b45309); color: var(--text-main); font-weight: 600; }
+    .qr-steps li.complete { border-color: #248a3d; }
+    .qr-countdown { font-variant-numeric: tabular-nums; }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .btn-icon-top {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: none;
+      background: rgba(0, 0, 0, 0.05);
+      color: var(--text-regular);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      transition: var(--transition);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-icon-top:hover {
+      background: rgba(0, 0, 0, 0.08);
+      transform: scale(1.05);
+    }
+    .btn-icon-top:active {
+      transform: scale(0.97);
+    }
+
+    /* 全局禁用文字选择：点击/拖动框架不再出现蓝色选中框与复制粘贴菜单；输入框、日志终端保留可选择 */
+    body {
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+    input, textarea, [contenteditable="true"], .terminal-body, .el-input__inner, .el-textarea__inner {
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+    }
+
+    /* ==========================================================================
+       页面主体布局
+       ========================================================================== */
+    .app-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+      width: 100%;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 20px;
+      align-items: start;
+      width: 100%;
+    }
+
+    /* 侧边导航 - iOS 分组列表风格 */
+    .side-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: transparent !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      box-shadow: none !important;
+      overflow: visible !important;
+      width: fit-content !important;
+    }
+    .nav-btn {
+      display: flex !important;
+      align-items: center !important;
+      gap: 10px !important;
+      padding: 10px 14px !important;
+      border-radius: 12px !important;
+      width: fit-content !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      background: rgba(255, 255, 255, 0.08) !important;
+      backdrop-filter: blur(12px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(12px) saturate(180%) !important;
+      color: #1D1D1F !important;
+      font-size: 14px !important;
+      font-weight: 500 !important;
+      cursor: pointer !important;
+      text-align: left !important;
+      transition: all 0.45s cubic-bezier(0.22, 1, 0.36, 1) !important;
+      white-space: nowrap !important;
+      user-select: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+      letter-spacing: -0.01em !important;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
+      transform: translateY(0) scale(1) !important;
+      outline: none !important;
+    }
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.18) !important;
+      border-color: rgba(255, 255, 255, 0.28) !important;
+      color: #1D1D1F !important;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+      transform: translateY(-4px) scale(1.02) !important;
+    }
+    .nav-btn.active {
+      background: rgba(255, 255, 255, 0.3) !important;
+      border-color: rgba(255, 255, 255, 0.45) !important;
+      color: #1D1D1F !important;
+      font-weight: 600 !important;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.35) !important;
+      transform: translateY(-5px) scale(1.03) !important;
+    }
+    .nav-btn .icon,
+    .nav-btn .icon svg,
+    .nav-btn .icon-svg {
+      color: #1D1D1F !important;
+      fill: #1D1D1F !important;
+      stroke: #1D1D1F !important;
+    }
+    .nav-btn .icon {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    /* ==========================================================================
+       卡片容器 (Apple Cards)
+       ========================================================================== */
+    .main-view {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      min-width: 0;
+      position: relative;
+      z-index: 2;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.12) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+      padding: 24px 26px;
+      width: 100%;
+      transition: var(--transition);
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-hover);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: -0.02em;
+    }
+    .card-desc {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin: 4px 0 0;
+      line-height: 1.5;
+    }
+
+    /* 数据指标看板 - Apple 风格 */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      width: 100%;
+    }
+    .stat-box {
+      background: rgba(255, 255, 255, 0.12) !important;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: var(--transition);
+    }
+    .stat-box:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      transform: translateY(-2px);
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
+    .stat-label {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: -0.01em;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-main);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      letter-spacing: -0.03em;
+    }
+
+    /* 按钮体系 - iOS 风格 */
+    .btn-action-primary {
+      background: rgba(255, 255, 255, 0.15) !important;
+      backdrop-filter: blur(12px) !important;
+      -webkit-backdrop-filter: blur(12px) !important;
+      color: var(--text-main) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+      border-radius: 12px !important;
+      font-weight: 600 !important;
+      font-size: 14px !important;
+      padding: 10px 20px !important;
+      transition: var(--transition) !important;
+      letter-spacing: -0.01em !important;
+    }
+    .btn-action-primary:hover {
+      background: rgba(255, 255, 255, 0.25) !important;
+      transform: scale(1.02);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .btn-action-primary:active {
+      transform: scale(0.98);
+    }
+    .btn-action-fire {
+      background: rgba(255, 255, 255, 0.15) !important;
+      backdrop-filter: blur(12px) !important;
+      -webkit-backdrop-filter: blur(12px) !important;
+      color: var(--text-main) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+      border-radius: 12px !important;
+      font-weight: 600 !important;
+      font-size: 14px !important;
+      padding: 10px 20px !important;
+      transition: var(--transition) !important;
+      letter-spacing: -0.01em !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .btn-action-fire:hover {
+      background: rgba(255, 255, 255, 0.25) !important;
+      transform: scale(1.02);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+    }
+    .btn-action-fire:active {
+      transform: scale(0.98);
+    }
+
+    /* ==========================================================================
+       桌面端与手机端好友列表
+       ========================================================================== */
+    .desktop-only-table { display: block; }
+    .mobile-only-cards { display: none; }
+
+    /* 好友卡片选中态 */
+    .friend-card.is-selected {
+      border-color: transparent !important;
+      box-shadow: none;
+      background: linear-gradient(135deg, rgba(0,122,255,0.03), var(--bg-surface)) !important;
+    }
+    .friend-card:hover {
+      border-color: rgba(0, 122, 255, 0.3);
+    }
+
+    /* Apple 风格好友卡片从上方弹出入场 */
+    @keyframes friendCardEnter {
+      0% {
+        opacity: 0;
+        transform: translateY(-180px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .friend-card {
+      animation: friendCardEnter 1s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    }
+
+    /* 隐藏滚动条 */
+    .no-scrollbar {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+    /* 删除按钮 */
+    .friend-del-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ff3b30;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      background: rgba(255, 59, 48, 0.08);
+      user-select: none;
+    }
+    .friend-del-btn:hover {
+      background: #ff3b30;
+      color: #fff;
+      transform: scale(1.12);
+    }
+
+    /* 流体背景 canvas */
+    #fluid-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      display: block;
+    }
+    #app {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* iOS 风格顶部横幅弹窗 */
+    .ios-banner {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-150%);
+      width: fit-content;
+      max-width: min(92%, 320px);
+      background: rgba(255, 255, 255, 0.55);
+      backdrop-filter: blur(32px) saturate(200%);
+      -webkit-backdrop-filter: blur(32px) saturate(200%);
+      border-radius: 20px;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 14px 44px rgba(0, 0, 0, 0.18), 0 4px 14px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255,255,255,0.6);
+      z-index: 99999;
+      transition: transform 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      pointer-events: none;
+    }
+    .ios-banner-show {
+      transform: translateX(-50%) translateY(0);
+    }
+    .ios-banner-text {
+      min-width: 0;
+      text-align: center;
+    }
+    .ios-banner-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1d1d1f;
+      margin: 0;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .ios-banner-subtitle {
+      font-size: 12.5px;
+      color: #e5e5ea;
+      margin: 2px 0 0 0;
+      line-height: 1.3;
+    }
+    /* 好友卡片网格滚动条 */
+    .desktop-only-table::-webkit-scrollbar { width: 6px; }
+    .desktop-only-table::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .desktop-only-table::-webkit-scrollbar-track { background: transparent; }
+
+    .table-box {
+      border: none;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.1) !important;
+      width: 100%;
+      box-shadow: var(--shadow-card);
+    }
+    .el-table {
+      --el-table-bg-color: transparent !important;
+      --el-table-tr-bg-color: transparent !important;
+      --el-table-header-bg-color: rgba(255, 255, 255, 0.15) !important;
+      --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.2) !important;
+      --el-table-border-color: rgba(255, 255, 255, 0.1) !important;
+      font-size: 13.5px;
+      --el-table-text-color: var(--text-regular) !important;
+      --el-table-header-text-color: var(--text-muted) !important;
+    }
+
+    /* 手机端精美卡片式好友列表项 - Apple 风格 */
+    .contact-card-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.18) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.3) !important;
+      border-radius: 12px;
+      padding: 10px 12px;
+      transition: var(--transition);
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255,255,255,0.25);
+      animation: friendCardEnter 1s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    }
+    .contact-card-row:nth-child(1) { animation-delay: 0.05s; }
+    .contact-card-row:nth-child(2) { animation-delay: 0.1s; }
+    .contact-card-row:nth-child(3) { animation-delay: 0.15s; }
+    .contact-card-row:nth-child(4) { animation-delay: 0.2s; }
+    .contact-card-row:nth-child(5) { animation-delay: 0.25s; }
+    .contact-card-row:nth-child(6) { animation-delay: 0.3s; }
+    .contact-card-row:nth-child(7) { animation-delay: 0.35s; }
+    .contact-card-row:nth-child(8) { animation-delay: 0.4s; }
+    .contact-card-row:nth-child(9) { animation-delay: 0.45s; }
+    .contact-card-row:nth-child(10) { animation-delay: 0.5s; }
+    .contact-card-row:nth-child(n+11) { animation-delay: 0.55s; }
+    .contact-card-row:hover {
+      box-shadow: var(--shadow-card);
+      transform: translateY(-1px);
+    }
+    .contact-card-row:active {
+      transform: scale(0.99);
+      background: rgba(255, 255, 255, 0.25) !important;
+    }
+    .contact-card-row.is-selected {
+      background: rgba(255, 255, 255, 0.25) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      border: 1px solid transparent !important;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255,255,255,0.25);
+    }
+    .chk-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .avatar-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #f1f5f9;
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 1px solid #e2e8f0;
+    }
+    .user-meta {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+    }
+    .user-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .user-sub {
+      font-size: 11.5px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pill-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .spark-pill {
+      color: #ea580c;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .no-spark-pill {
+      color: #94a3b8;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .status-pill-sub {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .status-pill-sub.success {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .status-pill-sub.failed {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+    .status-pill-sub.pending {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    /* 日志控制台 - 透明玻璃质感终端 */
+    .terminal-box {
+      background: rgba(0, 0, 0, 0.28) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+    .terminal-header {
+      background: rgba(255, 255, 255, 0.08) !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: rgba(245, 245, 247, 0.7) !important;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      letter-spacing: -0.01em;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .terminal-body {
+      margin: 0;
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: #f5f5f7 !important;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      height: 380px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* 刷新圆点 - 点击回弹 */
+    .refresh-dot:active {
+      transform: scale(0.55);
+    }
+
+    /* ===== 全面透明玻璃质感覆盖 ===== */
+    /* 所有 Element Plus 按钮变体 */
+    .el-button--default,
+    .el-button--primary,
+    .el-button--success,
+    .el-button--warning,
+    .el-button--danger,
+    .el-button--info,
+    .el-button--text {
+      background: rgba(255, 255, 255, 0.12) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      color: var(--text-main) !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+    }
+    .el-button--default:hover,
+    .el-button--primary:hover,
+    .el-button--success:hover,
+    .el-button--warning:hover,
+    .el-button--danger:hover,
+    .el-button--info:hover {
+      background: rgba(255, 255, 255, 0.25) !important;
+      color: var(--text-main) !important;
+      border-color: rgba(255, 255, 255, 0.35) !important;
+    }
+    .el-button--default:disabled,
+    .el-button--primary:disabled,
+    .el-button--success:disabled,
+    .el-button--warning:disabled,
+    .el-button--danger:disabled,
+    .el-button--info:disabled {
+      background: rgba(255, 255, 255, 0.06) !important;
+      color: rgba(0, 0, 0, 0.3) !important;
+      border-color: rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* 输入框 */
+    .el-input__wrapper,
+    .el-textarea__inner,
+    .el-select__wrapper {
+      background: rgba(255, 255, 255, 0.1) !important;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) inset !important;
+      backdrop-filter: blur(8px) !important;
+      -webkit-backdrop-filter: blur(8px) !important;
+    }
+    .el-input__wrapper:hover,
+    .el-textarea__inner:hover,
+    .el-select__wrapper:hover {
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset !important;
+    }
+    .el-input__wrapper.is-focus,
+    .el-select__wrapper.is-focused {
+      box-shadow: 0 0 0 1px #007AFF inset !important;
+    }
+    .el-input__inner,
+    .el-textarea__inner {
+      color: var(--text-main) !important;
+    }
+    .el-input__inner::placeholder,
+    .el-textarea__inner::placeholder {
+      color: var(--text-muted) !important;
+    }
+
+    /* 下拉框 */
+    .el-select-dropdown,
+    .el-popper {
+      background: rgba(30, 30, 32, 0.9) !important;
+      backdrop-filter: blur(20px) !important;
+      -webkit-backdrop-filter: blur(20px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+    .el-select-dropdown__item {
+      color: var(--text-regular) !important;
+    }
+    .el-select-dropdown__item:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
+    .el-select-dropdown__item.selected {
+      color: #007AFF !important;
+      font-weight: 600 !important;
+    }
+
+    /* 开关 */
+    .el-switch__core {
+      background-color: rgba(255, 255, 255, 0.2) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    }
+    .el-switch.is-checked .el-switch__core {
+      background-color: #007AFF !important;
+      border-color: #007AFF !important;
+    }
+
+    /* 滑块 */
+    .el-slider__runway {
+      background-color: rgba(255, 255, 255, 0.15) !important;
+    }
+    .el-slider__bar {
+      background-color: #007AFF !important;
+    }
+
+    /* 单选/多选框 */
+    .el-radio__inner,
+    .el-checkbox__inner {
+      background-color: rgba(255, 255, 255, 0.1) !important;
+      border-color: rgba(255, 255, 255, 0.25) !important;
+    }
+    .el-radio__input.is-checked .el-radio__inner,
+    .el-checkbox__input.is-checked .el-checkbox__inner {
+      background-color: #007AFF !important;
+      border-color: #007AFF !important;
+    }
+
+    /* 对话框/弹窗 */
+    .el-dialog,
+    .el-message-box {
+      background: rgba(30, 30, 32, 0.85) !important;
+      backdrop-filter: blur(30px) !important;
+      -webkit-backdrop-filter: blur(30px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    }
+    .el-dialog__title,
+    .el-message-box__title {
+      color: var(--text-main) !important;
+    }
+    .el-dialog__body,
+    .el-message-box__message {
+      color: var(--text-regular) !important;
+    }
+
+    /* 消息提示 */
+    .el-message {
+      background: rgba(30, 30, 32, 0.85) !important;
+      backdrop-filter: blur(20px) !important;
+      -webkit-backdrop-filter: blur(20px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    }
+    .el-message__content {
+      color: var(--text-main) !important;
+    }
+
+    /* 分页 */
+    .el-pagination button,
+    .el-pager li {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: var(--text-regular) !important;
+    }
+    .el-pager li.is-active {
+      background: #007AFF !important;
+      color: #fff !important;
+    }
+
+    /* 标签页 */
+    .el-tabs__item {
+      color: var(--text-muted) !important;
+    }
+    .el-tabs__item.is-active {
+      color: var(--text-main) !important;
+    }
+    .el-tabs__active-bar {
+      background-color: #007AFF !important;
+    }
+
+    /* 导航栏父容器确保透明 */
+    .shell,
+    .app-container,
+    .main-view,
+    #app {
+      background: transparent !important;
+    }
+
+    /* 所有内联背景色的元素强制透明（谨慎使用） */
+    [style*="background: #fff"],
+    [style*="background: #ffffff"],
+    [style*="background-color: #fff"],
+    [style*="background-color: #ffffff"] {
+      background: rgba(255, 255, 255, 0.12) !important;
+    }
+
+    /* Element Plus 适配 - Apple 风格 */
+    .el-input__wrapper, .el-textarea__inner {
+      background-color: rgba(255, 255, 255, 0.15) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+      box-shadow: none !important;
+      border-radius: 12px !important;
+      color: var(--text-main) !important;
+      font-size: 14px;
+      padding: 4px 12px !important;
+      transition: var(--transition) !important;
+      backdrop-filter: blur(8px) !important;
+      -webkit-backdrop-filter: blur(8px) !important;
+    }
+    .el-input__wrapper:hover, .el-textarea__inner:hover {
+      background-color: rgba(255, 255, 255, 0.25) !important;
+    }
+    .el-input__wrapper.is-focus, .el-textarea__inner:focus {
+      background-color: rgba(255, 255, 255, 0.3) !important;
+      box-shadow: none;
+    }
+    .el-form-item__label {
+      color: var(--text-main) !important;
+      font-weight: 500;
+      font-size: 13.5px;
+      letter-spacing: -0.01em;
+    }
+    .el-button {
+      border-radius: 12px !important;
+      font-weight: 600;
+      font-size: 14px;
+      transition: var(--transition) !important;
+      letter-spacing: -0.01em;
+      background: rgba(255, 255, 255, 0.12) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      color: var(--text-main) !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+    }
+    .el-button:hover {
+      transform: scale(1.02);
+      background: rgba(255, 255, 255, 0.22) !important;
+    }
+    .el-button:active {
+      transform: scale(0.98);
+    }
+    .el-button:disabled {
+      opacity: 0.5 !important;
+    }
+    /* Task notices use the shared .card material; only local status accents differ. */
+    .status-notice.card {
+      --notice-ink: var(--text-main);
+      --notice-muted: var(--text-regular);
+      --notice-accent: var(--text-main);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      width: 100%;
+      min-width: 0;
+      margin: 0 0 12px;
+      padding: 15px 17px;
+      color: var(--notice-ink);
+    }
+    .status-notice.card.status-notice--warning,
+    .status-notice.card.status-notice--paused { --notice-accent: var(--color-warning); }
+    .status-notice.card.status-notice--progress { --notice-accent: var(--color-accent); }
+    .status-notice--warning .status-notice__title,
+    .status-notice--paused .status-notice__title { color: var(--notice-accent); }
+    .status-notice__icon {
+      display: grid;
+      place-items: center;
+      flex: 0 0 34px;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .08);
+      color: var(--notice-accent);
+    }
+    .status-notice .status-line-icon,
+    .status-notice .status-line-icon * {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .status-line-icon {
+      display: block;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+    .status-notice__body { flex: 1; min-width: 0; }
+    .status-notice__heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      min-width: 0;
+    }
+    .status-notice__title {
+      min-width: 0;
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+      overflow-wrap: anywhere;
+    }
+    .status-notice__badge {
+      flex-shrink: 0;
+      color: var(--notice-accent);
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-notice__description {
+      margin: 4px 0 0;
+      color: var(--notice-muted);
+      font-size: 13px;
+      line-height: 1.65;
+      overflow-wrap: anywhere;
+    }
+    .status-progress__friend { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .status-progress__label { flex-shrink: 0; white-space: nowrap; }
+    .status-progress__current {
+      display: -webkit-box;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      font-weight: 600;
+      color: var(--notice-ink);
+    }
+    .status-progress__metrics {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin-top: 12px;
+    }
+    .status-progress__count {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--notice-muted);
+      white-space: nowrap;
+    }
+    .status-progress__count .status-line-icon { width: 15px; height: 15px; }
+    .status-progress__count strong {
+      color: var(--notice-ink);
+      font-size: 13px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-progress__count--ok .status-line-icon { color: var(--color-success); }
+    .status-progress__count--failed .status-line-icon { color: var(--color-danger); }
+    .status-progress__footer {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 4px 12px;
+      margin-top: 12px;
+      color: var(--notice-muted);
+      font-size: 12px;
+      line-height: 1.5;
+      font-variant-numeric: tabular-nums;
+    }
+    .status-progress__track {
+      height: 4px;
+      margin-top: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .15);
+    }
+    .status-progress__fill {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--color-accent);
+      transform-origin: left center;
+      transition: transform 300ms ease-out;
+    }
+    .status-notice-sr {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 480px) {
+      .status-notice.card { gap: 10px; padding: 13px 12px; }
+      .status-notice__icon { flex-basis: 30px; width: 30px; height: 30px; border-radius: 9px; }
+      .status-progress__metrics { gap: 8px 14px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .status-progress__fill { transition: none; }
+    }
+    .icon-svg {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+      vertical-align: middle;
+      fill: currentColor;
+    }
+
+    /* ==========================================================================
+       📱 移动端针对性重构 (Mobile Optimization)
+       ========================================================================== */
+    @media (max-width: 768px) {
+      .app-container {
+        padding: 12px 10px calc(98px + env(safe-area-inset-bottom)) 10px;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      .shell {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      /* 日志框自适应延伸到导航上方一点（覆盖移动端 280px 固定高度） */
+      .logs-pane .terminal-body { height: calc(100dvh - 200px); }
+
+      /* 底部固定导航栏 - 每个按钮独立，无大框架笼罩 */
+      .side-nav {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        box-sizing: border-box !important;
+        z-index: 9999 !important;
+        border-radius: 0 !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.14) !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-bottom: none !important;
+        background: rgba(16, 16, 20, 0.62) !important;
+        backdrop-filter: blur(22px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(22px) saturate(180%) !important;
+        padding: 8px 12px calc(8px + env(safe-area-inset-bottom)) 12px !important;
+        box-shadow: none !important;
+        flex-direction: row !important;
+        justify-content: center !important;
+        gap: 10px !important;
+        transform: translateZ(0) !important;
+      }
+      .nav-btn {
+        flex-direction: column !important;
+        gap: 4px !important;
+        padding: 8px 12px !important;
+        font-size: 11px !important;
+        text-align: center !important;
+        align-items: center !important;
+        flex: 0 0 auto !important;
+        width: fit-content !important;
+        min-width: 56px !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.12) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.25) !important;
+        color: #1D1D1F !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+        transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1) !important;
+        transform: translateY(0) scale(1) !important;
+      }
+      .nav-btn .icon {
+        width: 18px !important;
+        height: 18px !important;
+        color: #1D1D1F !important;
+        fill: #1D1D1F !important;
+        stroke: #1D1D1F !important;
+      }
+      .nav-btn:hover {
+        background: rgba(255, 255, 255, 0.2) !important;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12) !important;
+        transform: translateY(-3px) scale(1.02) !important;
+      }
+      .nav-btn.active {
+        background: rgba(255, 255, 255, 0.28) !important;
+        border-color: rgba(255, 255, 255, 0.4) !important;
+        color: #1D1D1F !important;
+        font-weight: 600 !important;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+        transform: translateY(-4px) scale(1.03) !important;
+      }
+
+      /* 隐藏桌面大表格，显示手机端轻量卡片 */
+      .desktop-only-table {
+        display: none !important;
+      }
+      .mobile-only-cards {
+        display: flex !important;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 480px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 6px;
+      }
+
+      /* 2x2 数据看板 */
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .stat-box {
+        padding: 12px 12px;
+      }
+      .stat-label {
+        font-size: 11px;
+      }
+      .stat-value {
+        font-size: 17px;
+      }
+
+      /* 卡片与按钮组优化 */
+      .card {
+        padding: 14px 14px;
+        border-radius: var(--radius-sm);
+      }
+      .card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .card-title {
+        font-size: 14px;
+      }
+      
+      .mobile-action-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        width: 100% !important;
+      }
+      .mobile-action-grid .el-button {
+        margin: 0 !important;
+        width: 100% !important;
+        height: 38px !important;
+        font-size: 13px !important;
+      }
+      .mobile-full-btn {
+        width: 100% !important;
+        margin: 0 !important;
+      }
+      .mobile-stack-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+      }
+
+      .terminal-body {
+        height: 280px;
+        font-size: 11.5px;
+        padding: 10px;
+      }
+
+      /* 移动端登录界面优化 - 高优先级选择器，强制不透明 */
+      .login-gate {
+        position: fixed !important;
+        inset: 0 !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: 10000 !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+        padding: 16px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+      .login-gate .login-card {
+        background: #ffffff !important;
+        padding: 28px 20px 24px !important;
+        width: 100% !important;
+        max-width: 360px !important;
+        min-height: 420px !important;
+        margin: 0 auto !important;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: none !important;
+        transform-style: flat !important;
+        will-change: auto !important;
+        position: relative !important;
+        z-index: 1 !important;
+        animation: none !important;
+        -webkit-animation: none !important;
+      }
+      .login-gate .login-card * {
+        opacity: 1 !important;
+        visibility: visible !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .login-logo {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+      .login-gate .login-title {
+        color: #1D1D1F !important;
+        font-size: 22px !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .login-sub {
+        color: #6e6e73 !important;
+        font-size: 13px !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .challenge-nums {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .challenge-num {
+        width: 40px !important;
+        height: 48px !important;
+        font-size: 22px !important;
+        background: #f5f5f7 !important;
+        color: #1D1D1F !important;
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: none !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .login-input-wrap {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .login-input-wrap .el-input__wrapper {
+        background: #f5f5f7 !important;
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.15) inset !important;
+      }
+      .login-gate .login-input-wrap .el-input__inner {
+        color: #1D1D1F !important;
+        -webkit-text-fill-color: #1D1D1F !important;
+      }
+      .login-gate .login-btn {
+        background: #007AFF !important;
+        color: #ffffff !important;
+        height: 44px !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .login-error {
+        color: #d70015 !important;
+        background: rgba(255, 59, 48, 0.1) !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+      .login-gate .login-foot {
+        color: #8e8e93 !important;
+        font-size: 10px !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+    }
+
+    /* ===== 密钥登录门 - Apple 风格 ===== */
+    .login-gate {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+      background: rgba(255, 255, 255, 0.1) !important;
+      border-radius: 22px;
+      padding: 40px 32px 32px;
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.25) !important;
+      text-align: center;
+      animation: loginPop 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    }
+    @keyframes loginPop {
+      from { transform: translateY(20px) scale(0.96); opacity: 0; }
+      to   { transform: translateY(0) scale(1);    opacity: 1; }
+    }
+    .login-logo {
+      width: 96px;
+      height: 96px;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border-radius: 0;
+      filter: drop-shadow(0 10px 18px rgba(255, 90, 30, 0.35));
+      animation: logoFloat 3.5s ease-in-out infinite;
+      will-change: transform;
+    }
+    .login-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    @keyframes logoFloat {
+      0%, 100% { transform: translate3d(0, 0, 0); filter: drop-shadow(0 10px 18px rgba(255, 90, 30, 0.35)); }
+      50% { transform: translate3d(0, -5px, 0); filter: drop-shadow(0 16px 26px rgba(255, 90, 30, 0.45)); }
+    }
+    .login-logo .icon-svg { width: 48px; height: 48px; }
+    .login-title {
+      margin: 0 0 8px;
+      font-size: 27px;
+      font-weight: 700;
+      color: #f5f5f7 !important;
+      letter-spacing: -0.03em;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      animation: textFloat 4s ease-in-out infinite;
+      will-change: transform;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    .login-sub {
+      margin: 0 0 24px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #a1a1a6 !important;
+      letter-spacing: -0.01em;
+      text-shadow: none;
+      animation: textFloat 4s ease-in-out infinite;
+      animation-delay: 0.4s;
+      will-change: transform;
+      -webkit-font-smoothing: antialiased;
+    }
+    @keyframes textFloat {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      50% { transform: translate3d(0, -3px, 0); }
+    }
+    .login-error {
+      margin-top: 14px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #d70015;
+      background: rgba(255, 59, 48, 0.1);
+      border: none;
+      border-radius: 12px;
+      text-align: left;
+    }
+    .login-btn { width: 100%; margin-top: 18px; height: 46px; font-size: 15px; font-weight: 600; border-radius: 14px !important; background: rgba(255, 255, 255, 0.18) !important; color: #1D1D1F !important; border: 1px solid rgba(255, 255, 255, 0.4) !important; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.3); transition: transform 0.2s ease; }
+    .login-btn:hover { background: rgba(255, 255, 255, 0.18) !important; transform: scale(1.02); }
+    .login-foot {
+      margin: 18px 0 0;
+      font-size: 11.5px;
+      color: #6e6e73 !important;
+      text-shadow: none;
+      animation: textFloat 4.5s ease-in-out infinite;
+      animation-delay: 0.8s;
+      will-change: transform;
+    }
+
+    /* 挑战-响应：5个随机数字卡片 */
+    .challenge-nums {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin: 8px 0 14px;
+    }
+    .challenge-num {
+      width: 48px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.15) !important;
+      border: 1px solid rgba(255, 255, 255, 0.35) !important;
+      border-radius: 14px;
+      font-size: 28px;
+      font-weight: 700;
+      color: #1D1D1F !important;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.3);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      animation: numPop 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    @keyframes numPop {
+      from { transform: scale(0.8) translateY(-8px); opacity: 0; }
+      to   { transform: scale(1) translateY(0); opacity: 1; }
+    }
+    .challenge-refresh {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: none;
+      border: none;
+      color: var(--color-accent);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 4px 8px;
+      margin-bottom: 14px;
+      border-radius: 8px;
+      transition: var(--transition);
+      letter-spacing: -0.01em;
+      text-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+    }
+    .challenge-refresh:hover { background: rgba(0, 122, 255, 0.08); transform: translateY(-1px); }
+    .challenge-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+    .challenge-refresh .icon-svg { width: 13px; height: 13px; }
+    .login-input-wrap { margin-top: 4px; }
+    /* ==========================================================================
+       苹果风格增强：3D卡片 / 错开淡入 / 渐变按钮 / 滚动阻尼
+       ========================================================================== */
+
+    /* 滚动阻尼感 */
+    html {
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+    }
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.28);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.3);
+      background-clip: padding-box;
+      border: 2px solid transparent;
+    }
+
+    /* 页面加载错开淡入 */
+    .stagger-item {
+      opacity: 0;
+      animation: staggerFadeIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+    .stagger-item:nth-child(1) { animation-delay: 0.08s; }
+    .stagger-item:nth-child(2) { animation-delay: 0.18s; }
+    .stagger-item:nth-child(3) { animation-delay: 0.28s; }
+    .stagger-item:nth-child(4) { animation-delay: 0.38s; }
+    .stagger-item:nth-child(5) { animation-delay: 0.48s; }
+    .stagger-item:nth-child(6) { animation-delay: 0.58s; }
+    .stagger-item:nth-child(7) { animation-delay: 0.68s; }
+    .stagger-item:nth-child(8) { animation-delay: 0.78s; }
+    @keyframes staggerFadeIn {
+      to { opacity: 1; }
+    }
+
+    /* 3D 倾斜卡片 */
+    .card-3d {
+      transform-style: preserve-3d;
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                  box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform;
+    }
+    .card-3d:hover {
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
+    .card-3d .card-inner {
+      transform: translateZ(20px);
+    }
+
+    /* 渐变填充按钮 */
+    .btn-gradient {
+      position: relative;
+      overflow: hidden;
+      background: var(--color-accent);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  box-shadow 0.25s ease,
+                  background 0.3s ease;
+      box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3);
+    }
+    .btn-gradient::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+      opacity: 0;
+      transition: opacity 0.35s ease;
+      z-index: 0;
+    }
+    .btn-gradient:hover::before {
+      opacity: 1;
+    }
+    .btn-gradient:hover {
+      transform: translateY(-3px) scale(1.03);
+      box-shadow: 0 12px 32px rgba(0, 122, 255, 0.5);
+    }
+    .btn-gradient:active {
+      transform: translateY(0) scale(0.96);
+    }
+    .btn-gradient span {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* 次级按钮：渐变描边 */
+    .btn-ghost {
+      position: relative;
+      overflow: hidden;
+      background: transparent;
+      color: var(--color-accent);
+      border: 1.5px solid var(--color-accent);
+      border-radius: 12px;
+      padding: 9px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn-ghost:hover {
+      background: var(--color-accent);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(0, 122, 255, 0.25);
+    }
+
+    /* 登录按钮苹果风格强化 */
+    .login-btn {
+      position: relative !important;
+      overflow: hidden !important;
+      background: rgba(255, 255, 255, 0.18) !important;
+      border: 1px solid rgba(255, 255, 255, 0.4) !important;
+      border-radius: 14px !important;
+      height: 48px !important;
+      font-size: 15px !important;
+      font-weight: 600 !important;
+      letter-spacing: -0.01em !important;
+      color: #1D1D1F !important;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  box-shadow 0.3s ease !important;
+    }
+    .login-btn:hover {
+      transform: translateY(-3px) scale(1.02) !important;
+      background: rgba(255, 255, 255, 0.18) !important;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255,255,255,0.35) !important;
+    }
+    .login-btn:active {
+      transform: translateY(0) scale(0.96) !important;
+    }
+
+    /* 数字卡片苹果质感强化 */
+    .challenge-num {
+      background: rgba(255, 255, 255, 0.15) !important;
+      border: 1px solid rgba(255, 255, 255, 0.35) !important;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+      font-variant-numeric: tabular-nums !important;
+      color: #1D1D1F !important;
+      animation: numPopStrong 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  box-shadow 0.2s ease !important;
+    }
+    .challenge-num:hover {
+      transform: translateY(-4px) scale(1.08) !important;
+      background: rgba(255, 255, 255, 0.15) !important;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.35) !important;
+    }
+    .challenge-nums .challenge-num:nth-child(1) { animation-delay: 0.1s !important; }
+    .challenge-nums .challenge-num:nth-child(2) { animation-delay: 0.18s !important; }
+    .challenge-nums .challenge-num:nth-child(3) { animation-delay: 0.26s !important; }
+    .challenge-nums .challenge-num:nth-child(4) { animation-delay: 0.34s !important; }
+    .challenge-nums .challenge-num:nth-child(5) { animation-delay: 0.42s !important; }
+    @keyframes numPopStrong {
+      0% { transform: scale(0.5) translateY(-16px) rotate(-8deg); opacity: 0; }
+      60% { transform: scale(1.1) translateY(2px) rotate(2deg); opacity: 1; }
+      100% { transform: scale(1) translateY(0) rotate(0); opacity: 1; }
+    }
+
+    /* 输入框苹果风格 - 不透明背景，确保可见 */
+    .login-input-wrap .el-input__wrapper {
+      background: #f5f5f7 !important;
+      border: 1px solid rgba(0, 0, 0, 0.1) !important;
+      border-radius: 12px !important;
+      box-shadow: 0 0 0 1px transparent !important;
+      transition: all 0.25s ease !important;
+      padding: 4px 15px !important;
+    }
+    .login-input-wrap .el-input__wrapper:hover {
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15) !important;
+    }
+    .login-input-wrap .el-input__wrapper.is-focus {
+      box-shadow: none !important;
+      background: #ffffff !important;
+    }
+    .login-input-wrap .el-input__inner {
+      color: #1D1D1F !important;
+      -webkit-text-fill-color: #1D1D1F !important;
+    }
+    .login-input-wrap .el-input__inner::placeholder {
+      color: #999999 !important;
+    }
+
+    /* 侧边导航 iOS 分组风格 */
+    .side-nav {
+      background: rgba(255, 255, 255, 0.12) !important;
+      backdrop-filter: blur(24px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      border-radius: 16px !important;
+      padding: 6px !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
+      overflow: hidden !important;
+    }
+    .side-nav .nav-item,
+    .side-nav .nav-btn {
+      border-radius: 10px !important;
+      margin: 3px 0 !important;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+      font-weight: 500 !important;
+    }
+    .side-nav .nav-item:hover,
+    .side-nav .nav-btn:hover {
+      background: #f5f5f7 !important;
+      transform: translateX(4px);
+    }
+    .side-nav .nav-item.active,
+    .side-nav .nav-btn.active {
+      background: rgba(255, 255, 255, 0.15) !important;
+      color: #1D1D1F !important;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.25) !important;
+      transform: translateX(4px) scale(1.02);
+    }
+
+    /* 概览卡片苹果质感 */
+    .overview-card {
+      background: rgba(255, 255, 255, 0.12) !important;
+      backdrop-filter: blur(24px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+      border-radius: 18px !important;
+      padding: 24px !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                  box-shadow 0.3s ease !important;
+    }
+    .overview-card:hover {
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.12) !important;
+      background: rgba(255, 255, 255, 0.18) !important;
+    }
+
+    /* 统计卡片增强 */
+    .stat-box {
+      transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                  box-shadow 0.3s ease,
+                  background 0.3s ease !important;
+    }
+    .stat-box:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.1) !important;
+      background: rgba(255, 255, 255, 0.18) !important;
+    }
+
+    /* 主卡片增强 */
+    .card {
+      transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                  box-shadow 0.3s ease !important;
+    }
+
+    /* Vue 加载前隐藏所有模板内容，防止 {{ }} 闪烁 */
+    [v-cloak] {
+      display: none !important;
+    }
+
+    /* ── 毛玻璃透明圆弧：全局弹出提示 ─────────────────────── */
+    .el-message {
+      background: rgba(255,255,255,0.22) !important;
+      border: 1px solid rgba(255,255,255,0.28) !important;
+      border-radius: 999px !important;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.18) !important;
+      -webkit-backdrop-filter: blur(22px) saturate(1.7);
+      backdrop-filter: blur(22px) saturate(1.7);
+      color: #fff !important;
+      padding: 11px 20px !important;
+      min-width: 0 !important;
+    }
+    .el-message .el-message__content { color: #fff !important; font-weight: 500; }
+    .el-message--success { background: rgba(52,199,89,0.28) !important; }
+    .el-message--success .el-message__icon { color: #30d158 !important; }
+    .el-message--error { background: rgba(255,69,58,0.30) !important; }
+    .el-message--error .el-message__icon { color: #ff453a !important; }
+    .el-message--warning { background: rgba(255,159,10,0.30) !important; }
+    .el-message--warning .el-message__icon { color: #ffd60a !important; }
+    .el-message--info { background: rgba(108,108,120,0.34) !important; }
+    .el-message--info .el-message__icon,
+    .el-message .el-message__icon { color: #fff !important; }
+    .el-message__closeBtn { color: rgba(255,255,255,0.8) !important; }
+
+    /* 居中确认弹窗：毛玻璃圆角面板 */
+    .el-overlay { background: rgba(0,0,0,0.28); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    .el-message-box {
+      background: rgba(255,255,255,0.20) !important;
+      border: 1px solid rgba(255,255,255,0.28) !important;
+      border-radius: 22px !important;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.28) !important;
+      -webkit-backdrop-filter: blur(26px) saturate(1.7);
+      backdrop-filter: blur(26px) saturate(1.7);
+      color: #fff !important;
+    }
+    .el-message-box .el-message-box__title,
+    .el-message-box .el-message-box__message p,
+    .el-message-box .el-message-box__content { color: #fff !important; }
+    .el-message-box .el-message-box__headerbtn .el-message-box__close { color: rgba(255,255,255,0.85); }</style>
+  <link rel="stylesheet" href="/static/reference-theme.css?v=2.5-status-glass1" />
+</head>
+<body class="reference-theme">
+  <canvas id="fluid-canvas"></canvas>
+  <div id="app" style="display:none;">
+    <!-- iOS 风格顶部横幅弹窗（移动端 Teleport 到 body，避免被 #app 层叠上下文裁剪） -->
+    <Teleport to="body" :disabled="!isMobile">
+    <div class="ios-banner" :class="{ 'ios-banner-show': iosBanner.visible }">
+      <div class="ios-banner-text" style="padding-left: 0;">
+        <div class="ios-banner-title">{{ iosBanner.title }}</div>
+        <div class="ios-banner-subtitle" v-if="iosBanner.subtitle">{{ iosBanner.subtitle }}</div>
+      </div>
+    </div>
+    </Teleport>
+
+    <!-- 管理令牌登录门：Teleport 到 body，避免 iOS WebKit 下 #app 层叠上下文吞掉 fixed 登录门 -->
+    <Teleport to="body">
+    <div v-if="!authed" class="login-gate" style="z-index:10000;background:transparent;padding:16px;display:flex;visibility:visible;opacity:1;">
+      <div class="login-card" style="background:#ffffff !important;padding:28px 20px 24px;max-width:380px;min-height:420px;box-shadow:0 20px 60px rgba(0,0,0,0.5);display:block;visibility:visible;opacity:1;transform:none;animation:none;position:relative;z-index:1;">
+        <h2 class="login-title" style="color:#1D1D1F !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">抖音自动续火花 {{ appVersion }}</h2>
+
+        <!-- URL 令牌 + 密码验证界面 -->
+        <template v-if="urlAccessToken">
+          <p class="login-sub" style="color:#6e6e73 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">请输入访问密码（该设备最长30天免登录）</p>
+          <div class="login-input-wrap" style="display:block;visibility:visible;opacity:1;position:relative;z-index:2;margin-top:20px;">
+            <el-input
+              v-model="urlPassword"
+              placeholder="请输入访问密码"
+              size="large"
+              type="password"
+              show-password
+              autocomplete="off"
+              @focus="setFluidPaused(true)"
+              @blur="setFluidPaused(false)"
+              @keyup.enter="doUrlPasswordLogin"
+            />
+          </div>
+          <div v-if="loginError" class="login-error" style="color:#d70015 !important;background:rgba(255,59,48,0.1) !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">⚠ {{ loginError }}</div>
+          <el-button
+            type="primary"
+            size="large"
+            class="login-btn"
+            :loading="urlPasswordLoading"
+            @click="doUrlPasswordLogin"
+            style="background:#007AFF !important;color:#ffffff !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;margin-top:20px;"
+          >
+            验证并进入
+          </el-button>
+          <p class="login-foot" style="color:#8e8e93 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">会话仅存服务内存；服务重启后需重新验证</p>
+        </template>
+
+        <!-- 管理令牌登录界面 -->
+        <template v-else>
+          <p class="login-sub" style="color:#6e6e73 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">请输入服务器 .env 中配置的安全令牌</p>
+          <div class="login-input-wrap" style="display:block;visibility:visible;opacity:1;position:relative;z-index:2;">
+            <el-input
+              v-model="loginResult"
+              placeholder="请输入 AUTH_TOKEN"
+              size="large"
+              clearable
+              type="password"
+              show-password
+              autocomplete="current-password"
+              @focus="setFluidPaused(true)"
+              @blur="setFluidPaused(false)"
+              @keyup.enter="doLogin"
+            />
+          </div>
+
+          <div v-if="loginError" class="login-error" style="color:#d70015 !important;background:rgba(255,59,48,0.1) !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">⚠ {{ loginError }}</div>
+          <el-button
+            type="primary"
+            size="large"
+            class="login-btn"
+            :loading="loginLoading"
+            @click="doLogin"
+            style="background:#007AFF !important;color:#ffffff !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;"
+          >
+            验证并进入
+          </el-button>
+          <p class="login-foot" style="color:#8e8e93 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">验证后生成 24 小时 HttpOnly 会话；令牌不会写入浏览器存储</p>
+        </template>
+      </div>
+    </div>
+    </Teleport>
+
+    <div v-if="!authed" class="login-motion-control"><button class="motion-toggle" type="button" @click="toggleBackgroundMotion" :disabled="backgroundMotion.reducedMotion || !backgroundMotion.available" :aria-pressed="backgroundMotion.enabled && !backgroundMotion.reducedMotion && backgroundMotion.available" :aria-label="backgroundMotionTitle" :title="backgroundMotionTitle">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7c3-5 6 5 9 0s6 5 9 0M3 12c3-5 6 5 9 0s6 5 9 0M3 17c3-5 6 5 9 0s6 5 9 0" /></svg>
+              <span>{{ backgroundMotionLabel }}</span>
+            </button></div>
+    <!-- 顶部导航栏 -->
+    <header class="topbar" v-show="authed">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true"><img src="/static/fire-icon.png" style="width:88%;height:88%;object-fit:contain;display:block;margin:auto;" /></div>
+          <span class="brand-title">抖音自动续火花 {{ status.version || appVersion }}</span>
+        </div>
+        <div class="topbar-right">
+            <button class="motion-toggle" type="button" @click="toggleBackgroundMotion" :disabled="backgroundMotion.reducedMotion || !backgroundMotion.available" :aria-pressed="backgroundMotion.enabled && !backgroundMotion.reducedMotion && backgroundMotion.available" :aria-label="backgroundMotionTitle" :title="backgroundMotionTitle">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7c3-5 6 5 9 0s6 5 9 0M3 12c3-5 6 5 9 0s6 5 9 0M3 17c3-5 6 5 9 0s6 5 9 0" /></svg>
+              <span>{{ backgroundMotionLabel }}</span>
+            </button>
+          <span class="status-pill" :class="'status-' + credentialDisplay.tone" :title="sessionCheckedLabel">
+            <span class="status-dot"></span>
+            {{ credentialDisplay.label }}
+          </span>
+          <span v-if="status.running" class="muted" style="font-size:11px;">任务运行中，请勿重复触发</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 主体容器 -->
+    <div class="app-container" v-show="authed">
+      <div class="shell">
+        <!-- 侧边 / 底部导航栏（移动端 Teleport 到 body，避免 iOS 合成器因 #app 高度不足而丢弃 fixed 底栏） -->
+        <Teleport to="body" :disabled="!isMobile">
+        <nav class="side-nav" v-show="authed" aria-label="功能导航">
+          <button
+            v-for="item in navItems"
+            :key="item.name"
+            type="button"
+            class="nav-btn"
+            :class="{ active: tab === item.name }"
+            :aria-current="tab === item.name ? 'page' : null"
+            @click="openTab(item.name)"
+          >
+            <span class="icon" v-html="ICONS[item.icon]" aria-hidden="true"></span>
+            <span>{{ item.label }}</span>
+          </button>
+        </nav>
+        </Teleport>
+
+        <!-- 主视图区 -->
+        <main class="main-view">
+          <!-- 1. 运行概览页 -->
+          <div v-if="tab === 'overview'">
+            <!-- 指标统计条 -->
+            <div class="stats-grid stagger-item" style="margin-bottom: 16px;">
+              <div class="stat-box card-3d">
+                <div class="stat-label">登录凭证</div>
+                <div class="stat-value" :style="{ color: credentialDisplay.color, fontSize: '20px' }">
+                  {{ credentialDisplay.label }}
+                </div>
+                <p class="status-detail">{{ sessionCheckedLabel }}</p>
+              </div>
+              <div class="stat-box card-3d">
+                <div class="stat-label">守护状态</div>
+                <div class="stat-value" :style="{ color: taskDisplay.color, fontSize: '20px' }">
+                  {{ taskDisplay.label }}
+                </div>
+                <p class="status-detail">{{ taskDisplay.detail }}</p>
+              </div>
+              <div class="stat-box card-3d">
+                <div class="stat-label">已勾选好友</div>
+                <div class="stat-value">
+                  {{ selectedFriendCount }} <span style="font-size: 12px; color: var(--text-muted); font-weight: 400;">/ {{ totalContactCount }} 人</span>
+                </div>
+              </div>
+              <div class="stat-box card-3d">
+                <div class="stat-label">火花好友</div>
+                <div class="stat-value" style="color: #ea580c;">
+                  {{ sparkFriendCount }} <span style="font-size: 12px; color: var(--text-muted); font-weight: 400;">人</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Announce task/state changes, not each polling counter update. -->
+            <p class="status-notice-sr" role="status" aria-live="polite" aria-atomic="true">{{ taskStatusAnnouncement }}</p>
+
+            <!-- 连续失败 / 熔断告警 -->
+            <Transition name="notice-pop" type="transition" appear>
+              <div v-if="status.consecutive_failures > 0" key="failure" class="status-motion-shell">
+                <div class="status-motion-clip">
+                  <section class="card no-tilt status-notice status-notice--warning"
+                           :class="{ 'status-notice--paused': isAutoPaused }"
+                           data-testid="failure-notice"
+                           aria-label="发送异常提示">
+                    <span class="status-notice__icon" aria-hidden="true">
+                      <svg class="status-line-icon" viewBox="0 0 24 24"><path d="M10.3 4.5a2 2 0 0 1 3.4 0l7.1 12.3a2 2 0 0 1-1.7 3H4.9a2 2 0 0 1-1.7-3z"/><path d="M12 9v4"/><path d="M12 16h.01"/></svg>
+                    </span>
+                    <div class="status-notice__body">
+                      <div class="status-notice__heading">
+                        <h3 class="status-notice__title">{{ isAutoPaused ? '自动发送暂时暂停' : '上一轮发送失败' }}</h3>
+                        <span class="status-notice__badge">连续失败 {{ status.consecutive_failures }} 轮</span>
+                      </div>
+                      <p v-if="isAutoPaused" class="status-notice__description">
+                        请检查登录态或抖音页面。冷却结束后自动恢复<span v-if="autoResumeLabel">，预计 {{ autoResumeLabel }}</span>。
+                      </p>
+                      <p v-else class="status-notice__description">请检查登录态；仍可手动点击「立即续火花」重试。</p>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </Transition>
+
+            <!-- 发送实时进度 -->
+            <Transition name="notice-pop" type="transition" appear>
+              <div v-if="status.running && status.send_progress" key="progress" class="status-motion-shell">
+                <div class="status-motion-clip">
+                  <section class="card no-tilt status-notice status-notice--progress"
+                           data-testid="send-progress"
+                           aria-label="本轮发送状态">
+                    <span class="status-notice__icon" aria-hidden="true">
+                      <svg class="status-line-icon" viewBox="0 0 24 24"><path d="m21 3-6.5 18-4-7.5L3 9.5z"/><path d="m10.5 13.5 5-5"/></svg>
+                    </span>
+                    <div class="status-notice__body">
+                      <div class="status-notice__heading">
+                        <h3 class="status-notice__title">正在发送</h3>
+                        <span class="status-notice__badge">任务进行中</span>
+                      </div>
+                      <p class="status-notice__description status-progress__friend" aria-live="off">
+                        <span class="status-progress__label">当前好友</span>
+                        <span class="status-progress__current" :title="progressDisplay.current">{{ progressDisplay.current }}</span>
+                      </p>
+                      <div class="status-progress__metrics" aria-live="off">
+                        <span class="status-progress__count status-progress__count--ok" data-testid="send-ok">
+                          <svg class="status-line-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>
+                          成功 <strong>{{ progressDisplay.ok }}</strong>
+                        </span>
+                        <span class="status-progress__count status-progress__count--failed" data-testid="send-failed">
+                          <svg class="status-line-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></svg>
+                          失败 <strong>{{ progressDisplay.failed }}</strong>
+                        </span>
+                      </div>
+                      <div class="status-progress__footer" aria-live="off">
+                        <span>{{ progressDisplay.total ? '本轮进度' : '正在准备发送队列' }}</span>
+                        <span>{{ progressDisplay.total ? progressDisplay.done + ' / ' + progressDisplay.total + ' 位好友' : '准备中' }}</span>
+                      </div>
+                      <div class="status-progress__track" role="progressbar"
+                           aria-label="本轮好友发送进度" aria-valuemin="0" aria-valuemax="100"
+                           :aria-valuenow="progressDisplay.total ? progressDisplay.percent : undefined"
+                           :aria-valuetext="progressDisplay.total ? '已处理 ' + progressDisplay.done + ' 位，共 ' + progressDisplay.total + ' 位好友' : '正在准备发送队列'"
+                           aria-live="off">
+                        <span class="status-progress__fill" :style="{ transform: 'scaleX(' + progressDisplay.ratio + ')' }"></span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </Transition>
+
+            <!-- 未检测到登录凭证时的醒目指引条 -->
+            <div v-if="!status.state_file_exists" style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+              <div style="font-size: 13px; color: #9f1239; line-height: 1.5;">
+                <strong>⚠️ 当前服务器未检测到登录凭证 (state.json)：</strong><br />
+                前往凭证页扫描二维码，登录成功后会自动保存；也可以手动上传已有的 state.json。
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <el-button type="primary" size="small" @click="tab = 'credentials'">扫码更新凭证</el-button>
+                <input type="file" ref="quickFileInput" accept=".json" style="display: none;" @change="handleFileUpload" />
+                <el-button type="danger" size="small" @click="$refs.quickFileInput.click()">直接上传 state.json</el-button>
+              </div>
+            </div>
+
+            <!-- 快捷执行面板 -->
+            <div class="card stagger-item no-tilt">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">立即触发续火花</h3>
+                  <p class="card-desc">手动启动一次自动化流程，或在下方查看最近执行记录与结果。</p>
+                </div>
+                <div class="mobile-action-grid" style="display: flex; gap: 8px;">
+                  <el-button class="btn-action-fire" :disabled="status.running" @click="runStreak(false)">
+                    {{ status.running ? '任务执行中...' : '立即续火花' }}
+                  </el-button>
+                  <el-button :disabled="status.running" @click="runStreak(true)">
+                    模拟演练 (Dry-Run)
+                  </el-button>
+                </div>
+              </div>
+
+              <!-- 最近执行概况 -->
+              <div class="mobile-stack-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 13.5px;">
+                <div class="no-tilt" style="background: var(--bg-surface-subtle); padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                  <div style="color: var(--text-muted); margin-bottom: 3px; font-size: 12px;">最近一次执行时间</div>
+                  <div style="font-weight: 600; color: var(--text-main); font-size: 13px;">{{ lastRunInfo.time || '暂无运行记录' }}</div>
+                </div>
+                <div class="no-tilt" style="background: var(--bg-surface-subtle); padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                  <div style="color: var(--text-muted); margin-bottom: 3px; font-size: 12px;">执行结果简报</div>
+                  <div style="font-weight: 600; font-size: 13px;" :style="{ color: lastRunInfo.success ? '#16a34a' : '#d97706' }">
+                    {{ lastRunInfo.summary || '尚无执行记录' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 好友与台账页 -->
+          <div v-if="tab === 'friends'">
+            <div class="card stagger-item no-tilt">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">好友与消息台账</h3>
+                  <p class="card-desc">自动同步抖音好友列表，一键勾选火花好友，保存后每日定时自动发送。</p>
+                </div>
+                <div class="mobile-action-grid" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <el-button type="primary" size="small" class="btn-action-primary" :loading="syncing" @click="syncContacts">
+                    同步联系人
+                  </el-button>
+                  <el-button size="small" @click="autoSelectSparkFriends">
+                    一键勾选火花
+                  </el-button>
+                  <el-button size="small" @click="clearSelectedFriends">
+                    清空勾选
+                  </el-button>
+                  <el-button type="success" size="small" :loading="savingLedger" @click="saveLedgerSelection">
+                    保存勾选配置
+                  </el-button>
+                  <el-button type="danger" size="small" :disabled="selectedFriendCount === 0" @click="batchDeleteSelected">
+                    删除选中 ({{ selectedFriendCount }})
+                  </el-button>
+                </div>
+              </div>
+
+              <!-- 搜索过滤条 -->
+              <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <el-input
+                  v-model="searchKeyword"
+                  placeholder="搜索好友昵称或火花天数..."
+                  clearable
+                  size="small"
+                  style="flex: 1; min-width: 200px;"
+                />
+                <div style="font-size: 12.5px; color: var(--text-muted); white-space: nowrap;">
+                  已勾选 <strong style="color: var(--text-main);">{{ selectedFriendCount }}</strong> 位好友
+                </div>
+              </div>
+
+              <!-- 桌面端表格 (屏幕宽度 >= 769px) -->
+              <!-- 好友卡片网格 (桌面端) -->
+              <div class="desktop-only-table no-scrollbar" style="display: grid; grid-template-columns: 1fr; gap: 12px; max-height: 450px; overflow-y: auto; padding: 4px 2px 4px 0;">
+                <div
+                  v-for="(row, index) in filteredContacts"
+                  :key="row.display_name"
+                  class="friend-card no-tilt"
+                  :class="{ 'is-selected': row.selected }"
+                  :style="{ animationDelay: `${index * 40}ms` }"
+                  style="background: var(--bg-surface-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; display: flex; align-items: center; gap: 12px; transition: border-color 0.2s, box-shadow 0.2s; position: relative; overflow: hidden; flex-wrap: nowrap; cursor: pointer;"
+                  @click="row.selected = !row.selected"
+                >
+                  <!-- 头像 -->
+                  <img v-if="row.avatar && !avatarErrors.has(row.avatar)" :src="avatarProxy(row.avatar)"
+                    style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--border-color); background: var(--bg-surface-subtle);"
+                    @error="avatarErrors.add(row.avatar)" />
+                  <div v-else style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #007AFF, #5AC8FA); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; flex-shrink: 0;">
+                    {{ (row.nickname || '?').charAt(0) }}
+                  </div>
+                  <!-- 昵称 + 火花天数（同一行）+ 时间 -->
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
+                      <span style="font-weight: 600; color: var(--text-main); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%;">{{ row.nickname }}</span>
+                      <span v-if="row.spark_days && row.spark_days > 0" style="color: #ea580c; font-weight: 600; font-size: 12px; flex-shrink: 0; white-space: nowrap;">
+                        🔥 {{ row.spark_days }} 天
+                      </span>
+                      <span v-else style="color: var(--text-light); font-size: 11px; flex-shrink: 0;">未点亮</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">{{ formatTime(row.last_sent_at) }}</div>
+                  </div>
+                  <!-- 状态标签 -->
+                  <el-tag v-if="row.last_status === 'success'" type="success" size="small" style="flex-shrink: 0; pointer-events: none;">成功</el-tag>
+                  <el-tag v-else-if="row.last_status === 'failed'" type="danger" size="small" style="flex-shrink: 0; pointer-events: none;">失败</el-tag>
+                  <el-tag v-else type="info" size="small" style="flex-shrink: 0; pointer-events: none;">待发送</el-tag>
+                </div>
+                <div v-if="filteredContacts.length === 0" style="grid-column: 1 / -1; text-align: center; padding: 40px 10px; color: var(--text-muted); font-size: 13px;">
+                  暂无好友数据，请点击上方「同步联系人」拉取列表
+                </div>
+              </div>
+
+              <!-- 手机端专属卡片列表 (屏幕宽度 <= 768px) -->
+              <div class="mobile-only-cards no-scrollbar">
+                <div
+                  v-for="item in filteredContacts"
+                  :key="item.display_name"
+                  class="contact-card-row"
+                  :class="{ 'is-selected': item.selected }"
+                  @click="item.selected = !item.selected"
+                >
+                  <img v-if="item.avatar && !avatarErrors.has(item.avatar)" :src="avatarProxy(item.avatar)" class="avatar-badge"
+                    style="object-fit: cover; border: 1px solid var(--border-color);"
+                    @error="avatarErrors.add(item.avatar)" />
+                  <div v-else class="avatar-badge">{{ (item.nickname || '?').charAt(0) }}</div>
+                  <div class="user-meta">
+                    <div class="user-name">{{ item.nickname }}</div>
+                    <div class="user-sub">{{ formatTime(item.last_sent_at) }}</div>
+                  </div>
+                  <div class="pill-group">
+                    <span v-if="item.spark_days > 0" class="spark-pill">
+                      🔥 {{ item.spark_days }}天
+                    </span>
+                    <span v-else class="no-spark-pill">未点亮</span>
+                    <span class="status-pill-sub" :class="item.last_status || 'pending'">
+                      {{ item.last_status === 'success' ? '成功' : (item.last_status === 'failed' ? '失败' : '待发') }}
+                    </span>
+                  </div>
+                </div>
+                <div v-if="filteredContacts.length === 0" style="text-align: center; padding: 30px 10px; color: var(--text-muted); font-size: 13px;">
+                  暂无好友数据，请点击上方「同步联系人」拉取列表
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 定时与风控设置页 -->
+          <div v-if="tab === 'settings'">
+            <div class="card stagger-item no-tilt">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">定时与拟人化风控配置</h3>
+                  <p class="card-desc">配置每日自动执行时间、随机抖动延迟与安全发送间隔，保护主号安全。</p>
+                </div>
+                
+              </div>
+
+              <el-form label-position="top" style="max-width: 600px;">
+                <el-form-item label="每日自动发送时间 (24小时制)">
+                  <el-input v-model="config.schedule_time" disabled placeholder="例如 00:00" style="max-width: 200px;" />
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">建议设置在晚间 20:00 ~ 22:30 之间。</div>
+                </el-form-item>
+
+                <el-form-item label="随机时间抖动 (分钟)">
+                  <el-input-number :controls="false" v-model="config.jitter_minutes" disabled :min="0" :max="60" />
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">在设定时间的 0 ~ N 分钟内随机启动，模拟真人不规律上线。</div>
+                </el-form-item>
+
+                <div class="mobile-stack-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                  <el-form-item label="好友发送最小间隔 (秒)">
+                    <el-input-number :controls="false" v-model="config.send_gap_min" disabled :min="1" :max="30" />
+                  </el-form-item>
+                  <el-form-item label="好友发送最大间隔 (秒)">
+                    <el-input-number :controls="false" v-model="config.send_gap_max" disabled :min="1" :max="60" />
+                  </el-form-item>
+                </div>
+
+                <el-form-item label="固定发送文案（不可修改）">
+                  <div style="padding: 10px 14px; background: var(--bg-surface-subtle); border: 1px solid var(--border-color); border-radius: 6px; font-size: 13.5px; color: var(--text-main); line-height: 1.6; white-space: pre-wrap;">{{ (config.messages || []).join('\n') || '—' }}</div>
+                </el-form-item>
+
+                <el-form-item label="定时任务开关">
+                  <el-switch v-model="config.auto_run_enabled" disabled active-text="开启每日自动定时执行" />
+                </el-form-item>
+              </el-form>
+            </div>
+          </div>
+
+          <!-- 4. 运行日志终端页 -->
+          <div v-if="tab === 'logs'" class="logs-pane">
+            <div class="terminal-box stagger-item" style="max-width: 100%; animation-delay: 0.1s;">
+              <div class="terminal-header">
+                <span>douyin-cloud-streak.log</span>
+                <button type="button" class="refresh-dot" @click="fetchLogs" title="刷新日志" style="width: 12px; height: 12px; border-radius: 50%; background: #f97316; border: none; cursor: pointer; padding: 0; flex-shrink: 0; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);"></button>
+              </div>
+              <pre class="terminal-body" id="terminal-view">{{ logsContent || '暂无日志输出，点击右上角“刷新日志”获取。' }}</pre>
+            </div>
+          </div>
+          <!-- 5. 凭证状态页 -->
+          <div v-if="tab === 'credentials'" class="credentials-view">
+            <div class="card stagger-item credential-summary" style="padding: 20px; background: var(--bg-surface-subtle); border-radius: var(--radius-md); border: 1px solid var(--border-color); max-width: 520px; animation-delay: 0.1s;">
+              <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">
+                当前凭证状态:
+                <span :style="{ color: credentialDisplay.color }">{{ credentialDisplay.label }}</span>
+                <p class="status-detail">{{ sessionCheckedLabel }}</p>
+              </div>
+              <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
+                文件已保存不代表平台会话始终有效。凭证失效时，可在下方扫码自动更新，或手动上传新的 state.json。
+              </div>
+            </div>
+
+            <div class="card stagger-item no-tilt qr-login-panel" style="margin-top:16px; padding:20px; max-width:560px; animation-delay:0.2s;" aria-labelledby="qr-login-heading">
+              <h3 id="qr-login-heading" style="font-size:16px;font-weight:600;margin-bottom:8px;">扫码登录，自动保存凭证</h3>
+              <p style="font-size:13px;color:var(--text-regular);line-height:1.7;margin-bottom:16px;">二维码会显示在下面的框内，不会打开新的登录窗口。请使用本人抖音 App 扫码并确认，成功后网站会自动更新 state.json。</p>
+              <div class="qr-stepper" :class="{'has-stage': qrVisualStep.index >= 0, 'is-complete': qrVisualStep.finalSuccess}" :data-step="qrVisualStep.index" :style="{'--step-index': Math.max(0, qrVisualStep.index), '--step-progress': Math.max(0, qrVisualStep.index) / 3}">
+                <div class="qr-step-highlight" aria-hidden="true"></div>
+                <ol class="qr-steps" aria-label="登录进度">
+                  <li v-for="(step, index) in qrSteps" :key="step" :class="{active: qrVisualStep.index === index, complete: qrVisualStep.index > index}" :aria-current="qrVisualStep.index === index ? 'step' : null"><span class="qr-step-number" aria-hidden="true">{{ index + 1 }}</span><span>{{ step }}</span></li>
+                </ol>
+                <div class="qr-step-rail" aria-hidden="true"><div class="qr-step-progress"></div></div>
+              </div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+                <el-button v-if="!qrLogin.hasJob" type="primary" :loading="qrLogin.status==='starting'" :disabled="qrLogin.running" @click="startQrLogin" style="min-height:44px;margin:0;">{{ qrLogin.status==='starting' ? '正在准备…' : (qrLogin.status==='success'?'重新扫码更新':'开始扫码登录') }}</el-button>
+                <el-button v-if="qrLogin.canRefresh" type="primary" @click="refreshQrLogin" style="min-height:44px;margin:0;">刷新二维码</el-button>
+                <el-button v-if="qrLogin.canRetrySync" @click="retryQrSync" style="min-height:44px;margin:0;">重试同步</el-button>
+                <el-button v-if="qrLogin.canRetryImage" @click="retryQrImage" style="min-height:44px;margin:0;">重新加载图片</el-button>
+                <el-button v-if="qrLogin.canRetryCleanup" @click="retryQrCleanup" style="min-height:44px;margin:0;">重试关闭后台浏览器</el-button>
+                <el-button v-if="(qrLogin.hasJob || qrLogin.running) && qrLogin.status!=='cleanup_pending'" :disabled="qrLogin.status==='cancelling'" @click="cancelQrLogin" aria-label="取消本次二维码登录" style="min-height:44px;margin:0;">{{ qrLogin.status==='cancelling'?'正在取消…':'取消登录' }}</el-button>
+              </div>
+              <div class="qr-code-frame" :class="{'has-image': !!qrLogin.imageUrl || !!qrLogin.verificationImageUrl, 'is-success': qrVisualStep.finalSuccess && qrLogin.status==='success'}" :aria-busy="qrLogin.interactionPending || qrLogin.status==='starting' ? 'true' : 'false'" :style="{width:qrLogin.status==='verification_required'?'min(100%,520px)':'min(100%,280px)',minHeight:qrLogin.status==='verification_required'&&qrLogin.verificationImageUrl?'0':'220px',padding:qrLogin.status==='verification_required'?'0':'20px'}" style="margin:0 auto 16px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #d1d5db;border-radius:16px;overflow:hidden;">
+                <img v-if="qrLogin.status==='verification_required' && qrLogin.verificationImageUrl" :src="qrLogin.verificationImageUrl" alt="官方验证图片，请按图片要求亲自点击或拖动" draggable="false" @dragstart.prevent @pointerdown="qrVerificationPointerDown" @pointermove="qrVerificationPointerMove" @pointerup="qrVerificationPointerUp" @pointercancel="qrVerificationPointerCancel" @lostpointercapture="qrVerificationPointerCancel" :style="{cursor:qrLogin.gestureActive?'grabbing':qrLogin.interactionPending?'wait':'crosshair'}" style="display:block;width:100%;max-width:520px;height:auto;touch-action:none;user-select:none;-webkit-user-select:none;" />
+                <img v-else-if="qrLogin.status!=='verification_required' && qrLogin.imageUrl" :src="qrLogin.imageUrl" alt="抖音扫码登录二维码" style="display:block;width:100%;max-width:240px;height:auto;aspect-ratio:1;object-fit:contain;" />
+                <div v-else class="qr-placeholder">
+                  <svg v-if="qrVisualStep.finalSuccess && qrLogin.status==='success'" :key="qrVisualStep.runKey" class="qr-success-mark" viewBox="0 0 72 72" fill="none" aria-hidden="true"><circle cx="36" cy="36" r="30"/><path d="m22 36 9 9 19-20"/></svg>
+                  <span v-else class="qr-idle-mark" :class="{'is-working':qrLogin.running}" aria-hidden="true"><svg viewBox="0 0 48 48" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 7H7v10m24-10h10v10M7 31v10h10m24-10v10H31"/><rect x="15" y="15" width="6" height="6" rx="1"/><rect x="27" y="15" width="6" height="6" rx="1"/><rect x="15" y="27" width="6" height="6" rx="1"/><path d="M27 27h6v6h-6z"/></svg></span>
+                  <p style="padding:16px;font-size:14px;line-height:1.7;color:#475569;text-align:center;">{{ qrLogin.status==='starting'?'正在准备二维码，请稍候…':qrLogin.status==='expired'?'二维码已过期，请刷新':qrLogin.status==='success'?'登录成功，凭证已自动保存':qrLogin.status==='cleanup_pending'?(qrLogin.saved?'凭证已保存，正在关闭后台浏览器':'正在关闭后台浏览器'):qrLogin.status==='sync_pending'?'连接恢复中，正在确认登录状态…':qrLogin.status==='verification_required'?(qrLogin.verificationImageError?'验证图片暂未加载，请重试图片':'正在加载官方验证图片，请稍候…'):qrLogin.imageError?'二维码暂未加载，请重试图片':qrLogin.status==='blocked'?'本次登录暂不可用，请查看下方提示':['failed','timeout'].includes(qrLogin.status)?'本次未能生成二维码，请查看下方原因后重试':qrLogin.running?qrLogin.message:'点击“开始扫码登录”生成二维码' }}</p>
+                </div>
+              </div>
+              <div role="status" aria-live="polite" style="font-size:13px;line-height:1.7;color:var(--text-regular);">{{ !qrLogin.imageUrl && qrLogin.imageError && qrLogin.status!=='verification_required' ? qrLogin.imageError : qrLogin.message }}</div>
+              <p v-if="qrLogin.error" role="alert" style="margin-top:8px;font-size:13px;color:var(--color-danger);line-height:1.7;">{{ qrLogin.error }}</p>
+              <p v-if="qrLogin.running && qrLogin.deadline && qrLogin.status!=='cleanup_pending'" class="qr-countdown" style="margin-top:8px;font-size:12px;color:var(--text-regular);">{{ qrRemainingSeconds > 0 ? '本次登录剩余 ' + qrRemainingLabel : '等待确认本次登录结果…' }}。二维码过期后可刷新。</p>
+              <p v-if="qrLogin.status==='verification_required'" style="margin-top:10px;padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7;">{{ qrLogin.gestureActive?'请在图片范围内完成本次操作。':qrLogin.interactionPending?'正在等待官方页面处理本次操作，请勿重复提交。':'请在图中点击或拖动完成官方验证，通过后会自动显示二维码。' }} 验证由你本人完成，本页不提供密码或短信输入。</p>
+              <p v-else-if="qrLogin.status==='blocked'" style="margin-top:10px;padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7;">平台暂时拦截了本次登录。请取消后稍后再试，或手动上传已有登录态。</p>
+              <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-color);">
+                <input type="file" ref="credentialFileInput" accept=".json,application/json" style="display:none" @change="handleFileUpload" />
+                <el-button :disabled="qrLogin.running || qrLogin.hasJob" @click="$refs.credentialFileInput.click()" style="min-height:44px;margin:0;">手动上传已有 state.json</el-button>
+                <p style="font-size:12px;line-height:1.6;color:var(--text-regular);margin-top:8px;">手动上传作为备用方式。扫码成功后无需再次上传；已有本机导出文件仍可在这里使用。</p>
+              </div>
+            </div>
+          </div>
+          <!-- 6. 邮箱告警配置页 -->
+          <div v-if="tab === 'email'">
+
+            <!-- 顶部两个可点击的小框架（WAAPI 像素手风琴） -->
+            <div id="emailBar" style="display:flex; gap:10px; margin-bottom:16px; max-width:340px;">
+              <div class="card no-tilt" style="width:165px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px; cursor:pointer; box-sizing:border-box; overflow:hidden;"
+                   :style="emailBtnStyle('smtp')"
+                   @click="selectEmail('smtp')">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" :stroke="emailSubView === 'smtp' ? '#007aff' : 'var(--text-muted)'" stroke-width="2" style="flex-shrink:0;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                <span style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; max-width:120px; transition:opacity 1.1s ease, max-width 1.1s ease;" :style="(emailSubView === 'text' ? 'opacity:0; max-width:0;' : 'opacity:1; max-width:120px;') + (emailSubView === 'smtp' ? 'color:#007aff;' : '')">卡死告警邮箱设置</span>
+              </div>
+
+              <div class="card no-tilt" style="width:165px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px; cursor:pointer; box-sizing:border-box; overflow:hidden;"
+                   :style="emailBtnStyle('text')"
+                   @click="selectEmail('text')">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" :stroke="emailSubView === 'text' ? '#ff7a00' : 'var(--text-muted)'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                <span style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; max-width:120px; transition:opacity 1.1s ease, max-width 1.1s ease;" :style="(emailSubView === 'smtp' ? 'opacity:0; max-width:0;' : 'opacity:1; max-width:120px;') + (emailSubView === 'text' ? 'color:#ff7a00;' : '')">告警文本自定义</span>
+              </div>
+            </div>
+
+            <!-- 下方内容：卡死告警邮箱设置（SMTP） -->
+            <div v-if="emailSubView === 'smtp'">
+              <div class="card stagger-item no-tilt">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title">卡死告警邮箱设置</h3>
+                    <p class="card-desc">看门狗检测到程序卡死时，自动用此邮箱发送告警邮件，内含卡死时间与线程栈。</p>
+                  </div>
+                </div>
+
+                <el-form label-position="top" style="max-width: 620px;">
+                  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+                    <el-form-item label="SMTP 发信服务器">
+                      <el-input v-model="emailCfg.smtp_host" placeholder="例如 smtp.qq.com" />
+                    </el-form-item>
+                    <el-form-item label="端口（465=SSL）">
+                      <el-input-number :controls="false" v-model="emailCfg.smtp_port" :min="1" :max="65535" style="width:100%;" />
+                    </el-form-item>
+                  </div>
+
+                  <el-form-item label="发信邮箱地址">
+                    <el-input v-model="emailCfg.smtp_user" placeholder="例如 name@example.com" />
+                  </el-form-item>
+
+                  <el-form-item label="SMTP 授权码（不是登录密码；留空表示不修改）">
+                    <el-input v-model="emailCfg.smtp_pass" type="password" show-password autocomplete="new-password" name="smtpauthcode" data-lpignore="true" placeholder="已保存授权码，留空保持不变；如要更换才填写新授权码" />
+                  </el-form-item>
+
+                  <el-form-item label="告警收件地址（多个地址用英文逗号分隔）">
+                    <el-input v-model="emailCfg.mail_to" placeholder="不填则发给发信邮箱自己" />
+                  </el-form-item>
+                </el-form>
+
+                <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                  <el-button type="primary" :loading="savingEmail" @click="saveEmailForm">保存邮箱配置</el-button>
+                  <el-button :loading="testingEmail" @click="sendTestEmail">发送测试邮件</el-button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 下方内容：告警文本自定义 -->
+            <div v-if="emailSubView === 'text'">
+              <div class="card stagger-item no-tilt">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title">告警文本自定义</h3>
+                    <p class="card-desc">自定义邮件主题与正文（报错文本），支持占位符在发送时自动替换。</p>
+                  </div>
+                </div>
+                <el-form label-position="top" style="max-width: 620px;">
+                  <el-form-item label="邮件主题">
+                    <el-input v-model="emailCfg.subject" />
+                  </el-form-item>
+                  <el-form-item label="邮件正文（报错文本）">
+                    <el-input v-model="emailCfg.body" type="textarea" :rows="9" />
+                  </el-form-item>
+                  <div style="font-size:12px; color:var(--text-muted); line-height:1.9;">
+                    可用占位符：{host} 主机名 · {host_ip} 内网IP · {time} 触发时间 · {age} 卡死持锁秒数 · {threshold} 看门狗阈值 · {stack} 线程栈
+                  </div>
+                </el-form>
+                <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                  <el-button type="primary" :loading="savingEmail" @click="saveEmailForm">保存邮箱配置</el-button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- 旧的令牌弹窗已由全屏密钥登录门替代 -->
+  </div>
+
+  <!-- 流体背景脚本 -->
+  <script src="/static/silk-background.js?v=2.5-legacy-bg1"></script>
+  <script src="/static/qr-step-motion.js?v=2.5-silk3"></script>
+  <script src="/static/reference-motion.js?v=2.5-reference1"></script>
+
+  <!-- 引入依赖脚本 -->
+  <script src="/static/vendor/vue.global.prod.js"></script>
+  <script src="/static/vendor/element-plus.full.min.js"></script>
+  <script src="/static/vendor/axios.min.js"></script>
+  <script src="/static/qr-login.js?v=2.5-20261012"></script>
+
+  <script>
+    const { createApp, ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch } = Vue;
+
+    const ICONS = {
+      fire: `<svg class="icon-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12.003 2c-.12 0-.24.03-.35.08-1.56.75-3.66 2.37-4.52 4.41-.9 2.13-.53 4.2.49 5.86-.48-.68-.86-1.48-1.02-2.35-.07-.37-.47-.59-.83-.46-.35.12-.55.49-.47.85.34 1.63 1.13 3.09 2.24 4.19C6.46 15.65 6 17.27 6 19c0 2.76 2.69 5 6 5s6-2.24 6-5c0-1.89-.54-3.57-1.74-4.88-.23-.25-.49-.48-.76-.69 1.15-1.12 1.95-2.61 2.29-4.28.08-.36-.12-.73-.47-.85-.36-.13-.76.09-.83.46-.16.87-.54 1.67-1.02 2.35 1.02-1.66 1.39-3.73.49-5.86-.86-2.04-2.96-3.66-4.52-4.41-.11-.05-.23-.08-.35-.08zM12 14c1.66 0 3 1.34 3 3 0 1.66-1.34 3-3 3s-3-1.34-3-3c0-1.66 1.34-3 3-3z"/></svg>`,
+      grid: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
+      users: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>`,
+      clock: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
+      terminal: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>`,
+      key: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-1.5 1.5L14 9m-1.5 1.5l-2.5 2.5a6 6 0 1 1-8.5 8.5 6 6 0 0 1 8.5-8.5l2.5-2.5m1.5-1.5L16 7m1.5-1.5L20 4"></path></svg>`,
+      mail: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>`,
+      reload: `<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`
+    };
+
+    const app = createApp({
+      setup() {
+        const tab = ref('overview');
+        const syncing = ref(false);
+        const savingLedger = ref(false);
+        const savingConfig = ref(false);
+        // 管理后台登录状态
+        const authed = ref(false);
+        // 移动端标记：仅移动端把 fixed 底栏/横幅 Teleport 到 body，脱离 #app 层叠上下文（PC 端留在 grid 内）
+        const isMobile = ref(false);
+        try {
+          const mqList = window.matchMedia('(max-width: 768px)');
+          isMobile.value = mqList.matches;
+          const onMqChange = (e) => { isMobile.value = e.matches; };
+          mqList.addEventListener('change', onMqChange);
+          onUnmounted(() => mqList.removeEventListener('change', onMqChange));
+        } catch (e) {}
+        const loginResult = ref('');
+        const loginError = ref('');
+        const loginLoading = ref(false);
+        // URL 令牌 + 密码验证状态
+        const urlAccessToken = ref('');
+        const appVersion = ref('2.5');
+        const urlPassword = ref('');
+        function setFluidPaused(v) { window.SparkSilkBackground?.setInputPaused(!!v); }
+        const backgroundMotion = reactive(window.SparkSilkBackground?.getState() || {enabled:true,available:false,reducedMotion:false,running:false});
+        const updateBackgroundMotion = event => Object.assign(backgroundMotion, event.detail || {});
+        window.addEventListener('spark-silk-change', updateBackgroundMotion);
+        const backgroundMotionLabel = computed(() => backgroundMotion.reducedMotion ? '静态背景' : backgroundMotion.enabled && backgroundMotion.available ? '动态背景' : '静态背景');
+        const backgroundMotionTitle = computed(() => backgroundMotion.reducedMotion ? '已遵循系统减少动态效果设置' : !backgroundMotion.available ? '当前设备使用静态背景' : backgroundMotion.enabled ? '暂停动态背景' : '开启动感背景');
+        function toggleBackgroundMotion() { window.SparkSilkBackground?.setEnabled(!backgroundMotion.enabled); }
+        const urlPasswordLoading = ref(false);
+        // 推荐把 access_token 放在 URL fragment（#access_token=...），fragment 不会
+        // 发给 Nginx/应用日志；仍兼容旧 query 链接，并在读取后立刻清理地址栏。
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const urlTokenFromUrl = hashParams.get('access_token') || urlParams.get('access_token') || '';
+        if (urlTokenFromUrl) {
+          urlAccessToken.value = urlTokenFromUrl;
+        }
+        // 令牌只保留在当前页面内存，避免进入后续历史、书签或复制链接。
+        const stripUrlToken = () => {
+          try {
+            const u = new URL(window.location.href);
+            u.searchParams.delete('access_token');
+            const hp = new URLSearchParams(u.hash.replace(/^#/, ''));
+            hp.delete('access_token');
+            const hash = hp.toString() ? '#' + hp.toString() : '';
+            window.history.replaceState({}, '', u.pathname + (u.search || '') + hash);
+          } catch (e) { /* 忽略：清理地址栏失败不影响登录 */ }
+        };
+        if (urlTokenFromUrl) stripUrlToken();
+        let statusTimer = null;
+        const searchKeyword = ref('');
+        const avatarErrors = ref(new Set());
+        const avatarProxy = (url) => url ? `/api/avatar?url=${encodeURIComponent(url)}` : '';
+
+        // ── iOS 风格顶部横幅弹窗 ──────────────────────────────────────
+        const iosBanner = reactive({ visible: false, title: '', subtitle: '' });
+        let iosBannerTimer = null;
+        const showIOSBanner = (title, subtitle, duration = 3200) => {
+          iosBanner.title = title;
+          iosBanner.subtitle = subtitle || '';
+          iosBanner.visible = true;
+          if (iosBannerTimer) clearTimeout(iosBannerTimer);
+          iosBannerTimer = setTimeout(() => { iosBanner.visible = false; }, duration);
+        };
+        const logsContent = ref('');
+        const qrLogin = reactive({status:'idle',running:false,message:'点击开始扫码登录，在本页完成凭证更新。',error:'',imageUrl:'',deadline:0,hasJob:false,canRefresh:false,canRetrySync:false,canRetryImage:false,canRetryCleanup:false,saved:false,imageError:'',verificationImageError:'',verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,verificationBusy:false,interactionPending:false,gestureActive:false});
+        let qrLoginController = null;
+        const qrSteps = ['等待扫码', '手机确认', '保存凭证', '完成'];
+        const qrClock = ref(Date.now());
+        let qrClockTimer = null;
+        const qrVisualStep = reactive({index:-1,completed:0,arrived:false,runKey:0,finalSuccess:false,confirmedIndex:-1});
+        const qrStepMotion = window.SparkQrStepMotion?.create({onChange: snapshot => Object.assign(qrVisualStep, snapshot)}) || null;
+        const qrStageIndex = computed(() => qrVisualStep.index);
+        function updateQrPresentation(snapshot) {
+          Object.assign(qrLogin, snapshot);
+          if (qrStepMotion) qrStepMotion.update(snapshot);
+        }
+        const qrRemainingSeconds = computed(() => Math.max(0, Math.ceil((Number(qrLogin.deadline) - qrClock.value) / 1000)));
+        const qrRemainingLabel = computed(() => Math.floor(qrRemainingSeconds.value / 60) + ':' + String(qrRemainingSeconds.value % 60).padStart(2, '0'));
+        watch(() => qrLogin.running && !!qrLogin.deadline && qrLogin.status !== 'cleanup_pending', active => {
+          if (qrClockTimer !== null) clearInterval(qrClockTimer);
+          qrClockTimer = null;
+          qrClock.value = Date.now();
+          if (active) qrClockTimer = setInterval(() => { qrClock.value = Date.now(); }, 1000);
+        });
+
+        const navItems = [
+          { name: 'overview', label: '概览', icon: 'grid' },
+          { name: 'friends', label: '好友', icon: 'users' },
+          { name: 'settings', label: '定时', icon: 'clock' },
+          { name: 'logs', label: '日志', icon: 'terminal' },
+          { name: 'credentials', label: '凭证', icon: 'key' },
+          { name: 'email', label: '邮箱', icon: 'mail' },
+        ];
+
+        const status = reactive({
+          version: '2.5',
+          state_file_exists: false,
+          session_status: 'unknown',
+          session_checked_at: null,
+          background_tasks_enabled: null,
+          next_run: null,
+          status_connected: false,
+          running: false,
+          consecutive_failures: 0,
+          auto_paused_until: 0,
+          send_progress: null,
+        });
+        const BASE_DOC_TITLE = '抖音自动续火花 2.5 · Douyin Cloud Streak';
+        let pollDelay = 10000;
+
+        const config = reactive({
+          schedule_time: '00:00',
+          jitter_minutes: 0,
+          send_gap_min: 1,
+          send_gap_max: 2,
+          messages: ['[续火花吧]'],
+          auto_run_enabled: true
+        });
+
+        const messagesText = ref('');
+        const contacts = ref([]);
+        const lastRunInfo = reactive({
+          time: '',
+          summary: '',
+          success: false
+        });
+
+        function summarizeLastRun(run) {
+          const empty = {time:'',summary:'',success:false};
+          if (!run || typeof run !== 'object' || Array.isArray(run)) return empty;
+          const keys = ['ok','failed','deferred','skipped'];
+          const hasResults = keys.some(key => Array.isArray(run[key]) && run[key].length > 0);
+          const hasMode = typeof run.dry_run === 'boolean';
+          let date = null;
+          if ((typeof run.at === 'string' && run.at.trim()) || (typeof run.at === 'number' && Number.isFinite(run.at) && run.at > 0)) {
+            const value = typeof run.at === 'number' && run.at < 1e12 ? run.at * 1000 : run.at;
+            const parsed = new Date(value);
+            if (Number.isFinite(parsed.getTime())) date = parsed;
+          }
+          if (!date && !hasMode && !hasResults) return empty;
+          const time = date ? date.toLocaleString('zh-CN',{hour12:false}) : '时间未记录';
+          const mode = run.dry_run === true ? '模拟演练（未发送消息）' : run.dry_run === false ? '实际发送' : '执行记录（模式未标明）';
+          if (keys.some(key => run[key] !== undefined && !Array.isArray(run[key]))) {
+            return {time,summary:mode+' · 结果记录不完整，暂无法统计',success:false};
+          }
+          const names = {ok:new Set(),unconfirmed:new Set(),failed:new Set(),deferred:new Set(),skipped:new Set()};
+          const systemErrors = [];
+          let incomplete = false;
+          for (const key of keys) {
+            for (const item of Array.isArray(run[key]) ? run[key] : []) {
+              const value = typeof item === 'string' ? item : item && typeof item === 'object' ? item.name ?? item.display_name ?? item.nickname : null;
+              if (typeof value !== 'string' || !value.trim()) {incomplete=true;continue;}
+              const name = value.trim().normalize('NFC');
+              if (name === '_system') {
+                if (key === 'failed' || key === 'deferred') systemErrors.push(item);
+                continue;
+              }
+              if (key === 'skipped' && item && typeof item === 'object' && item.code === 'delivery_unconfirmed') names.unconfirmed.add(name);
+              else names[key].add(name);
+            }
+          }
+          // One person has one displayed outcome. An unconfirmed send must
+          // never be classified as an ordinary retry candidate or a skip.
+          for (const name of names.ok) { names.unconfirmed.delete(name); names.failed.delete(name); names.deferred.delete(name); names.skipped.delete(name); }
+          for (const name of names.unconfirmed) { names.failed.delete(name); names.deferred.delete(name); names.skipped.delete(name); }
+          for (const name of names.failed) { names.deferred.delete(name); names.skipped.delete(name); }
+          for (const name of names.deferred) names.skipped.delete(name);
+          const parts = [mode, (run.dry_run === true ? '演练通过 ' : hasMode ? '成功 ' : '已完成 ') + names.ok.size,
+            '失败 '+names.failed.size, '待处理 '+names.deferred.size];
+          if (names.skipped.size) parts.push('跳过 '+names.skipped.size);
+          const hasUnconfirmed = run.delivery_unconfirmed === true || names.unconfirmed.size > 0;
+          if (hasUnconfirmed) parts.push((names.unconfirmed.size ? '待核对 '+names.unconfirmed.size : '有待核对结果')+'（请在抖音核对，勿直接重发）');
+          if (incomplete) parts.push('部分结果记录不完整，请查看运行日志');
+          if (systemErrors.length) {
+            const closed = systemErrors.some(item => item && typeof item === 'object' &&
+              (item.code === 'browser_session_closed' || typeof item.reason === 'string' &&
+               /event loop.*closed|(?:browser|context|page|target).*closed|浏览器.*关闭|事件循环.*关闭/i.test(item.reason)));
+            // Only fixed explanations leave the formatter: arbitrary exception
+            // strings can contain URLs, private paths or account identifiers.
+            parts.push('已中断：'+(closed ? '浏览器会话已关闭，请重新运行模拟演练检查' : '后台执行异常，请查看运行日志'));
+          }
+          return {time,summary:parts.join(' · '),success:hasMode && names.ok.size > 0 &&
+            names.failed.size === 0 && names.deferred.size === 0 && systemErrors.length === 0 && !incomplete && !hasUnconfirmed};
+        }
+
+        const api = axios.create();
+        api.interceptors.response.use(
+          (res) => res,
+          (err) => {
+            if (err.response && err.response.status === 403) {
+              authed.value = false;
+              loginError.value = (err.response.data && err.response.data.detail) || '该 IP 已被锁定';
+              loginResult.value = '';
+              if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+            } else if (err.response && err.response.status === 401) {
+              if (authed.value) {
+                authed.value = false;
+                loginError.value = '会话已失效，请重新验证';
+                loginResult.value = '';
+                if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+              }
+            }
+            return Promise.reject(err);
+          }
+        );
+
+        const totalContactCount = computed(() => contacts.value.length);
+        const selectedFriendCount = computed(() => contacts.value.filter(c => c.selected).length);
+        const sparkFriendCount = computed(() => contacts.value.filter(c => (c.spark_days || 0) > 0).length);
+
+        const filteredContacts = computed(() => {
+          const kw = searchKeyword.value.trim().toLowerCase();
+          if (!kw) return contacts.value;
+          return contacts.value.filter(c => 
+            (c.nickname && c.nickname.toLowerCase().includes(kw)) ||
+            (String(c.spark_days || '').includes(kw))
+          );
+        });
+
+        const isAutoPaused = computed(() =>
+          Number(status.auto_paused_until || 0) * 1000 > Date.now()
+        );
+
+        const sessionCheckedLabel = computed(() => {
+          if (!status.status_connected) return '等待服务器同步状态';
+          if (!status.state_file_exists) return '请在凭证页扫码登录';
+          const seconds = Number(status.session_checked_at);
+          if (!(seconds > 0) || !Number.isFinite(seconds)) return '尚无检查记录；保存文件不代表登录有效';
+          const date = new Date(seconds * 1000);
+          return Number.isFinite(date.getTime()) ? '上次确认：' + date.toLocaleString('zh-CN', {hour12:false}) : '尚无有效检查时间';
+        });
+        const credentialDisplay = computed(() => {
+          const view = (label, tone) => ({label, tone, color: tone === 'ok' ? '#acdcb2' : tone === 'bad' ? '#ffb4a9' : '#ead09a'});
+          if (!status.status_connected) return view('状态待同步', 'warn');
+          if (!status.state_file_exists) return view('未保存凭证', 'bad');
+          if (status.session_status === 'expired') return view('已失效，需扫码', 'bad');
+          if (['failed', 'partial'].includes(status.session_status)) return view('登录状态待检查', 'warn');
+          if (status.session_status === 'ok' && Number(status.session_checked_at) > 0 && Number.isFinite(Number(status.session_checked_at))) return view('上次检查有效', 'ok');
+          return view('已保存，待检查', 'warn');
+        });
+        const taskDisplay = computed(() => {
+          const view = (label, detail, color = '#ead09a') => ({label, detail, color});
+          if (!status.status_connected) return view('等待状态同步', '连接恢复后会自动更新');
+          if (status.running) return view('正在执行', '请等待当前任务完成');
+          if (status.background_tasks_enabled === false) return view('后台已暂停', '本次启动暂停后台任务，仍可手动操作');
+          if (status.background_tasks_enabled !== true) return view('等待状态同步', '尚未确认后台任务状态');
+          if (!config.auto_run_enabled) return view('自动发送已暂停', '可在设置中调整自动发送开关');
+          if (isAutoPaused.value) return view('异常冷却中', '请检查最近任务结果和登录状态');
+          if (!status.next_run) return view('等待调度', '尚未收到下一次执行时间');
+          const next = new Date(status.next_run);
+          return view('等待定时执行', Number.isFinite(next.getTime()) ? '下次：' + next.toLocaleString('zh-CN', {hour12:false}) : '已登记下一次定时任务', '#acdcb2');
+        });
+
+        // Display-only normalization keeps malformed/transient progress bounded.
+        const progressDisplay = computed(() => {
+          const progress = status.send_progress || {};
+          const count = value => {
+            const number = Number(value);
+            return Number.isFinite(number) ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(number))) : 0;
+          };
+          const total = count(progress.total);
+          const ok = count(progress.ok);
+          const failed = count(progress.failed);
+          const hasDone = progress.done !== null && progress.done !== undefined && progress.done !== '' && Number.isFinite(Number(progress.done));
+          const processed = hasDone ? count(progress.done) : count(ok + failed);
+          const done = total ? Math.min(processed, total) : 0;
+          const ratio = total ? Math.min(1, Math.max(0, done / total)) : 0;
+          return {
+            current: String(progress.current || '').trim() || '准备中',
+            total, done, ok, failed, ratio,
+            percent: Math.round(ratio * 100),
+          };
+        });
+        const autoResumeLabel = computed(() => {
+          const date = new Date(Number(status.auto_paused_until) * 1000);
+          if (!Number.isFinite(date.getTime())) return '';
+          return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) + ' 恢复';
+        });
+        const taskStatusAnnouncement = computed(() => {
+          const warning = status.consecutive_failures > 0
+            ? (isAutoPaused.value ? '自动发送暂时暂停。' : '上一轮发送失败。') + '连续失败 ' + status.consecutive_failures + ' 轮，请检查登录态。'
+            : '';
+          return warning + (status.running ? '发送任务正在执行。' : '当前没有发送任务。');
+        });
+        const formatTime = (timeStr) => {
+          if (!timeStr) return '今日待发送';
+          try {
+            const d = new Date(timeStr);
+            if (isNaN(d.getTime())) return String(timeStr);
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const h = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            return `上次：${m}-${day} ${h}:${min}`;
+          } catch (e) {
+            return '今日待发送';
+          }
+        };
+
+        const loadStatus = async () => {
+          try {
+            const res = await api.get('/api/status');
+            status.status_connected = true;
+            status.version = res.data.version || status.version;
+            status.session_status = res.data.session_status || 'unknown';
+            status.session_checked_at = res.data.session_checked_at ?? null;
+            status.background_tasks_enabled = typeof res.data.background_tasks_enabled === 'boolean' ? res.data.background_tasks_enabled : null;
+            status.next_run = res.data.next_run || null;
+            status.running = res.data.running;
+            status.state_file_exists = res.data.state_file_exists;
+            status.consecutive_failures = res.data.consecutive_failures || 0;
+            status.auto_paused_until = res.data.auto_paused_until || 0;
+            status.send_progress = res.data.send_progress || null;
+            Object.assign(lastRunInfo, summarizeLastRun(res.data.last_run));
+            // 连续失败时标签页标题加警示（比声音/震动可靠，不依赖浏览器前台或静音）
+            document.title = status.consecutive_failures > 0
+              ? `⚠️ 连续失败${status.consecutive_failures}轮 · 抖音自动续火花`
+              : BASE_DOC_TITLE;
+            // 动态轮询：发送中 1.5s 看实时进度，空闲 10s
+            const wantDelay = status.running ? 1500 : 10000;
+            if (statusTimer && wantDelay !== pollDelay) {
+              clearInterval(statusTimer);
+              statusTimer = setInterval(loadStatus, wantDelay);
+              pollDelay = wantDelay;
+            }
+            return true;
+          } catch (e) {
+            status.status_connected = false;
+            console.error('Failed to load status', e);
+            return false;
+          }
+        };
+
+        const loadConfig = async () => {
+          try {
+            const res = await api.get('/api/config');
+            Object.assign(config, res.data);
+            messagesText.value = (res.data.messages || []).join('\n');
+          } catch (e) {
+            console.error('Failed to load config', e);
+          }
+        };
+
+        const loadLedger = async () => {
+          try {
+            const res = await api.get('/api/ledger');
+            const list = res.data.contacts || res.data.entries || [];
+            contacts.value = list.map(item => ({
+              display_name: item.display_name || item.nickname || '',
+              nickname: item.nickname || item.display_name || '',
+              avatar: item.avatar || '',
+              spark_days: Number(item.spark_days || item.streak_days || 0),
+              streak_days: Number(item.streak_days || item.spark_days || 0),
+              selected: Boolean(item.selected),
+              last_status: item.last_status || (item.last_sent_at ? 'success' : 'pending'),
+              last_sent_at: item.last_sent_at || ''
+            }));
+          } catch (e) {
+            console.error('Failed to load ledger', e);
+          }
+          nextTick(() => { if (typeof init3DCards === 'function') stabilizeCards(); });
+        };
+
+        const fetchLogs = async () => {
+          try {
+            const res = await api.get('/api/logs');
+            logsContent.value = res.data.logs || '';
+            nextTick(() => {
+              const el = document.getElementById('terminal-view');
+              if (el) el.scrollTop = el.scrollHeight;
+            });
+          } catch (e) {
+            console.error('Failed to fetch logs', e);
+          }
+        };
+
+        const clearLogs = () => {
+          logsContent.value = '';
+        };
+
+        // ── 邮箱告警配置 ──────────────────────────────────────
+        const emailCfg = reactive({
+          smtp_host: '', smtp_port: 465, smtp_user: '', smtp_pass: '',
+          mail_to: '', subject: '', body: ''
+        });
+        const emailSubView = ref('');
+        const playEmailEntrance = () => {
+          nextTick(() => {
+            const bar = document.getElementById('emailBar');
+            if (!bar) return;
+            [...bar.children].forEach((el, i) => {
+              el.animate([{ opacity: 0 }, { opacity: 1 }],
+                { duration: 1000, delay: 100 + i * 120, easing: 'cubic-bezier(0.4,0,0.2,1)', fill: 'both' });
+            });
+          });
+        };
+        const openTab = (name) => {
+          tab.value = name;
+          if (name === 'email') { playEmailEntrance(); }
+          else { emailSubView.value = ''; resetEmailBar(); }
+        };
+        let emailAnims = [];
+        const EMAIL_EASING = 'cubic-bezier(0.65,0,0.35,1)';
+        const EMAIL_MS = 1200;
+
+        // Width targets per state (flow layout, no transforms -> nothing can fly)
+        const emailWidthTargets = (W, state) => {
+          if (state === 'smtp') return [W - 64, 54];
+          if (state === 'text') return [54, W - 64];
+          return [165, 165];
+        };
+
+        const runEmailAnim = (state, duration) => {
+          const bar = document.getElementById('emailBar');
+          if (!bar) return;
+          const W = bar.parentElement.clientWidth;
+          const tg = emailWidthTargets(W, state);
+
+          // 1) measure the CURRENT visual geometry BEFORE cancelling
+          const cur = [];
+          for (let i = 0; i < 2; i++) {
+            cur.push(bar.children[i].getBoundingClientRect().width);
+          }
+          const barCur = bar.getBoundingClientRect().width;
+
+          // 2) cancel, then freeze the measured geometry into base styles (no snap)
+          emailAnims.forEach(a => { try { a.cancel(); } catch(_) {} });
+          emailAnims = [];
+          for (let i = 0; i < 2; i++) {
+            bar.children[i].style.width = cur[i] + 'px';
+          }
+          bar.style.maxWidth = barCur + 'px';
+
+          // 3) animate from the current visual state to targets
+          for (let i = 0; i < 2; i++) {
+            const el = bar.children[i];
+            if (Math.abs(cur[i] - tg[i]) > 0.5) {
+              emailAnims.push(el.animate(
+                { width: [cur[i] + 'px', tg[i] + 'px'] },
+                { duration, easing: EMAIL_EASING, fill: 'forwards' }
+              ));
+            }
+          }
+          const barTarget = state === '' ? 340 : W;
+          if (Math.abs(barCur - barTarget) > 1) {
+            emailAnims.push(bar.animate(
+              { maxWidth: [barCur + 'px', barTarget + 'px'] },
+              { duration, easing: EMAIL_EASING, fill: 'forwards' }
+            ));
+          }
+        };
+
+        const selectEmail = (name) => {
+          const next = emailSubView.value === name ? '' : name;
+          runEmailAnim(next, EMAIL_MS);
+          emailSubView.value = next;
+        };
+
+        const resetEmailBar = () => {
+          const bar = document.getElementById('emailBar');
+          if (!bar) return;
+          emailAnims.forEach(a => { try { a.cancel(); } catch(_) {} });
+          emailAnims = [];
+          bar.style.maxWidth = '340px';
+          const btns = bar.children;
+          for (let i = 0; i < btns.length; i++) {
+            btns[i].style.width = '165px';
+            btns[i].style.transform = '';
+          }
+        };
+
+        window.addEventListener('resize', () => {
+          if (emailSubView.value) runEmailAnim(emailSubView.value, 400);
+        });
+
+        const emailBtnStyle = (name) => {
+          const active = emailSubView.value === name;
+          const rgb = name === 'smtp' ? '0,122,255' : '255,122,0';
+          return active
+            ? 'background:rgba(' + rgb + ',0.12); box-shadow:0 4px 16px rgba(' + rgb + ',0.22);'
+            : '';
+        };
+        const savingEmail = ref(false);
+        const testingEmail = ref(false);
+
+        const loadEmailConfig = async () => {
+          try {
+            const res = await api.get('/api/email-config');
+            Object.assign(emailCfg, res.data);
+            emailCfg.smtp_pass = '';   // 授权码只回掩码，输入框始终留空
+          } catch (e) {
+            console.error('Failed to load email config', e);
+          }
+        };
+
+        const saveEmailForm = async () => {
+          savingEmail.value = true;
+          try {
+            const { has_pass: _ignored, ...payload } = emailCfg;
+            const res = await api.post('/api/email-config', payload);
+            if (res.data.ok) {
+              ElementPlus.ElMessage.success('邮箱配置已保存！');
+              Object.assign(emailCfg, res.data.config);
+              emailCfg.smtp_pass = '';
+            }
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally {
+            savingEmail.value = false;
+          }
+        };
+
+        const sendTestEmail = async () => {
+          testingEmail.value = true;
+          try {
+            const res = await api.post('/api/email-test');
+            if (res.data.ok) {
+              ElementPlus.ElMessage.success('测试邮件已发送，请查收（注意垃圾箱）');
+            }
+          } catch (e) {
+            ElementPlus.ElMessage.error('测试邮件失败: ' + (e.response?.data?.detail || e.message));
+          } finally {
+            testingEmail.value = false;
+          }
+        };
+
+        const loadAll = async () => {
+          await Promise.all([loadStatus(), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig()]);
+        };
+
+        const runStreak = async (dryRun = false) => {
+          if (selectedFriendCount.value === 0) {
+            ElementPlus.ElMessage.warning('⚠️ 您尚未勾选任何好友！请在「好友与消息」中勾选好友后再执行。');
+            tab.value = 'friends';
+            return;
+          }
+          try {
+            const res = await api.post('/api/run', { dry_run: dryRun });
+            if (res.data.ok) {
+              showIOSBanner('启动成功', '');
+              loadAll();
+            } else {
+              showIOSBanner('启动失败', '');
+            }
+          } catch (e) {
+            showIOSBanner('启动失败', '');
+          }
+        };
+
+        const syncContacts = async () => {
+          syncing.value = true;
+          try {
+            showIOSBanner('正在同步', '后台同步联系人列表，预计 10~20 秒...');
+            await api.post('/api/sync');
+            
+            let checks = 0;
+            const timer = setInterval(async () => {
+              checks++;
+              try {
+                const resLedger = await api.get('/api/ledger');
+                const isFetching = resLedger.data.fetching;
+                if (!isFetching || checks >= 25) {
+                  clearInterval(timer);
+                  syncing.value = false;
+                  await loadLedger();
+                  const total = contacts.value.length;
+                  const sparks = contacts.value.filter(c => (c.spark_days || 0) > 0).length;
+                  if (total > 0) {
+                    showIOSBanner('同步完成', `已获取 ${total} 位好友，${sparks} 位带火花`);
+                  } else {
+                    showIOSBanner('同步失败', '未能读取到联系人，请确认已上传登录凭证');
+                  }
+                }
+              } catch (err) {
+                clearInterval(timer);
+                syncing.value = false;
+              }
+            }, 1500);
+          } catch (e) {
+            syncing.value = false;
+            showIOSBanner('同步失败', e.response?.data?.detail || e.message);
+          }
+        };
+
+        const autoSelectSparkFriends = () => {
+          let count = 0;
+          contacts.value.forEach(c => {
+            if ((c.spark_days || 0) > 0) {
+              c.selected = true;
+              count++;
+            }
+          });
+          ElementPlus.ElMessage.success(`已自动勾选 ${count} 位火花好友，请点击“保存勾选配置”！`);
+        };
+
+        const clearSelectedFriends = () => {
+          contacts.value.forEach(c => c.selected = false);
+          ElementPlus.ElMessage.info('已清空全部勾选，请点击“保存勾选配置”生效。');
+        };
+
+        const deleteFriend = async (row) => {
+          const name = row.display_name || row.nickname;
+          if (!confirm(`确定要删除好友「${name}」吗？删除后需重新同步联系人才能恢复。`)) return;
+          try {
+            await api.post('/api/ledger/delete', { display_name: name });
+            contacts.value = contacts.value.filter(c => (c.display_name || c.nickname) !== name);
+            ElementPlus.ElMessage.success(`已删除「${name}」`);
+          } catch (e) {
+            ElementPlus.ElMessage.error('删除失败: ' + (e.response?.data?.detail || e.message));
+          }
+        };
+
+        const batchDeleteSelected = async () => {
+          const selected = contacts.value.filter(c => c.selected);
+          if (selected.length === 0) {
+            ElementPlus.ElMessage.warning('请先勾选要删除的好友');
+            return;
+          }
+          const names = selected.map(c => c.display_name || c.nickname);
+          if (!confirm(`确定要删除选中的 ${names.length} 位好友吗？\n\n${names.slice(0, 5).join('、')}${names.length > 5 ? ' 等' : ''}\n\n删除后需重新同步联系人才能恢复。`)) return;
+          try {
+            const res = await api.post('/api/ledger/batch-delete', { display_names: names });
+            const deleted = res.data.deleted || 0;
+            const nameSet = new Set(names);
+            contacts.value = contacts.value.filter(c => !nameSet.has(c.display_name || c.nickname));
+            ElementPlus.ElMessage.success(`已成功删除 ${deleted} 位好友`);
+          } catch (e) {
+            ElementPlus.ElMessage.error('批量删除失败: ' + (e.response?.data?.detail || e.message));
+          }
+        };
+
+        const saveLedgerSelection = async () => {
+          savingLedger.value = true;
+          try {
+            const selectedNames = contacts.value.filter(c => c.selected).map(c => c.display_name || c.nickname);
+            const res = await api.post('/api/ledger/selection', { selected_names: selectedNames });
+            if (res.data.ok) {
+              ElementPlus.ElMessage.success(`好友勾选配置已成功保存！当前生效勾选 ${selectedNames.length} 人`);
+              await loadLedger();
+            }
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally {
+            savingLedger.value = false;
+          }
+        };
+
+        const saveConfigForm = async () => {
+          savingConfig.value = true;
+          try {
+            // 发送文案已在服务器固定，不从网页提交，保留 config 加载到的固定值
+            const payload = { ...config };
+            const res = await api.post('/api/config', payload);
+            if (res.data.ok) {
+              ElementPlus.ElMessage.success('定时与风控设置已保存！');
+            }
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally {
+            savingConfig.value = false;
+          }
+        };
+
+        const handleFileUpload = async (event) => {
+          if (qrLogin.running || qrLogin.hasJob) {
+            showIOSBanner('请先结束扫码登录', '取消当前扫码流程后，再手动上传登录态文件');
+            event.target.value = '';
+            return;
+          }
+          const file = event.target.files[0];
+          if (!file) return;
+          const formData = new FormData();
+          formData.append('file', file);
+          try {
+            showIOSBanner('上传中', '正在上传通行证凭据...');
+            const res = await api.post('/api/upload-state', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (res.data.ok) {
+              showIOSBanner('上传成功', '通行证凭证已就绪');
+              await loadStatus();
+            }
+          } catch (e) {
+            showIOSBanner('上传失败', e.response?.data?.detail || e.message);
+          }
+        };
+
+        // URL 令牌 + 密码验证：验证通过后设备30天免登录
+        const doUrlPasswordLogin = async () => {
+          const pwd = (urlPassword.value || '').trim();
+          if (!pwd) {
+            loginError.value = '请输入访问密码';
+            return;
+          }
+          urlPasswordLoading.value = true;
+          loginError.value = '';
+          try {
+            const res = await api.post('/api/auth/url-token-login', {
+              access_token: urlAccessToken.value,
+              password: pwd
+            });
+            if (res.data && res.data.ok) {
+              // 设备令牌由服务端写入 HttpOnly Cookie，前端脚本不可读取。
+              localStorage.removeItem('dcs_auth_token');
+              stripUrlToken();
+              urlPassword.value = '';
+              await enterSystem();
+            } else {
+              loginError.value = '验证响应异常，请重试';
+            }
+          } catch (e) {
+            if (e.response && e.response.status === 401) {
+              loginError.value = (e.response.data && e.response.data.detail) || '访问令牌或密码不正确';
+            } else {
+              loginError.value = '无法连接服务器，请稍后重试';
+            }
+          } finally {
+            urlPasswordLoading.value = false;
+          }
+        };
+
+        // 验证通过后的统一进入动作
+        const enterSystem = async () => {
+          // Enter may remove the focused login input without dispatching blur.
+          setFluidPaused(false);
+          authed.value = true;
+          loginError.value = '';
+          try { await loadAll(); } catch (e) { /* 状态加载失败不拦截进入 */ }
+          if (statusTimer) clearInterval(statusTimer);
+          pollDelay = status.running ? 1500 : 10000;
+          statusTimer = setInterval(loadStatus, pollDelay);
+          stabilizeCards();
+        };
+
+        // 兼容旧调用点；公开计算公式已经停用。
+        const fetchChallenge = async () => {
+          loginError.value = '';
+        };
+
+        // 点击「验证并进入」：用 AUTH_TOKEN 换取短期 HttpOnly 会话。
+        const doLogin = async () => {
+          const val = (loginResult.value || '').trim();
+          if (!val) {
+            loginError.value = '请输入安全令牌';
+            return;
+          }
+          loginLoading.value = true;
+          loginError.value = '';
+          try {
+            const res = await api.post('/api/auth/login', {
+              token: val
+            });
+            if (res.data && res.data.ok) {
+              localStorage.removeItem('dcs_auth_token');
+              loginResult.value = '';
+              await enterSystem();
+            } else {
+              loginError.value = '登录响应异常，请重试';
+            }
+          } catch (e) {
+            localStorage.removeItem('dcs_auth_token');
+            if (e.response && e.response.status === 401) {
+              loginError.value = '安全令牌不正确';
+              loginResult.value = '';
+            } else if (e.response && e.response.status === 400) {
+              loginError.value = (e.response.data && e.response.data.detail) || '请求格式不正确';
+            } else if (e.response && e.response.status === 403) {
+              loginError.value = (e.response.data && e.response.data.detail) || '该 IP 已被锁定';
+            } else {
+              loginError.value = '无法连接服务器，请稍后重试';
+            }
+          } finally {
+            loginLoading.value = false;
+          }
+        };
+
+        // 退出 / 锁定后台，回到登录门
+        const logout = async () => {
+          // Cancel while the authenticated HttpOnly session is still available.
+          if (qrLoginController) {
+            const cancellingController = qrLoginController;
+            await Promise.race([cancellingController.cancel(), new Promise(resolve => setTimeout(resolve, 1200))]);
+            cancellingController.dispose();
+            if (qrLoginController === cancellingController) qrLoginController = null;
+          }
+          try { await api.post('/api/auth/logout'); } catch (e) { /* 忽略注销错误 */ }
+          authed.value = false;
+          localStorage.removeItem('dcs_auth_token');
+          if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+          loginResult.value = '';
+          loginError.value = '';
+          await fetchChallenge();
+        };
+
+        // 导航栏滚动效果：透明 → 毛玻璃
+        const initScrollEffect = () => {
+          const topbar = document.querySelector('.topbar');
+          if (!topbar) return;
+          const onScroll = () => {
+            if (window.scrollY > 4) {
+              topbar.classList.add('scrolled');
+            } else {
+              topbar.classList.remove('scrolled');
+            }
+          };
+          window.addEventListener('scroll', onScroll, { passive: true });
+          onScroll();
+        };
+
+        // Bind reference pointer effects and preserve completed card entrances.
+        const stabilizeCards = () => nextTick(() => {
+          window.SparkReferenceMotion?.refresh();
+          document.querySelectorAll('.main-view .stagger-item').forEach(card => {
+            if (card._visibilityBound) return;
+            card._visibilityBound = true;
+            card.addEventListener('animationend', () => { card.style.opacity = '1'; });
+          });
+        });
+        watch(tab, stabilizeCards);
+
+        onMounted(async () => {
+          // 确保 app 可见（防止任何异常导致白屏）
+          const appEl = document.getElementById('app');
+          if (appEl) appEl.style.display = '';
+          try {
+            const hv = await api.get('/api/health');
+            if (hv.data.version) appVersion.value = hv.data.version;
+          } catch (_) {}
+          try {
+          // HttpOnly Cookie 会由浏览器自动携带；先探测会话或白名单旁路。
+          initScrollEffect();
+          stabilizeCards();
+          // 清理 1.5 及更早版本遗留在 localStorage 的明文令牌。
+          localStorage.removeItem('dcs_auth_token');
+          loginLoading.value = true;
+          try {
+            await api.get('/api/status');
+            await enterSystem();
+          } catch (e) {
+            await fetchChallenge();
+          } finally {
+            loginLoading.value = false;
+          }
+          } catch (e) {
+            console.error('onMounted error:', e);
+            // 出错时确保显示登录门
+            authed.value = false;
+            try { await fetchChallenge(); } catch (e2) {}
+          }
+        });
+
+
+        function getQrLoginController() {
+          if (qrLoginController) return qrLoginController;
+          if (!window.SparkQrLogin) throw new Error('二维码登录组件未加载，请刷新页面后重试。');
+          qrLoginController = window.SparkQrLogin.create({
+            api,
+            onChange: updateQrPresentation,
+            onSuccess: async () => {
+              if (!authed.value) return;
+              const synced = await loadStatus();
+              if (!synced) throw new Error('status_refresh_failed');
+              if (authed.value) showIOSBanner('登录成功', 'state.json 已自动更新，无需手动上传');
+            }
+          });
+          return qrLoginController;
+        }
+        function startQrLogin() {
+          if (qrLogin.running || !authed.value) return;
+          try { return getQrLoginController().start(); }
+          catch (_) { Object.assign(qrLogin,{status:'failed',running:false,message:'二维码登录组件未加载，请刷新页面后重试。'}); }
+        }
+        function refreshQrLogin() { if (qrLoginController && authed.value) return qrLoginController.refresh(); }
+        function cancelQrLogin() { if (qrLoginController) return qrLoginController.cancel(); }
+        function retryQrSync() { if (qrLoginController && authed.value) return qrLoginController.retrySync(); }
+        function retryQrImage() { if (qrLoginController && authed.value) return qrLoginController.retryImage(); }
+        function retryQrCleanup() { if (qrLoginController && authed.value) return qrLoginController.retryCleanup(); }
+        function qrVerificationPointerDown(event) { if (qrLoginController && authed.value) return qrLoginController.verificationPointerDown(event); }
+        function qrVerificationPointerMove(event) { if (qrLoginController && authed.value) return qrLoginController.verificationPointerMove(event); }
+        function qrVerificationPointerUp(event) { if (qrLoginController && authed.value) return qrLoginController.verificationPointerUp(event); }
+        function qrVerificationPointerCancel(event) { if (qrLoginController) return qrLoginController.verificationPointerCancel(event); }
+        watch(authed, value => {
+          if (!value) {
+            if (qrLoginController) { qrLoginController.dispose(); qrLoginController=null; }
+            if (qrStepMotion) qrStepMotion.update({status:'idle',running:false,hasJob:false});
+            Object.assign(qrLogin,{status:'idle',running:false,message:'请先验证网站访问权限。',error:'',imageUrl:'',deadline:0,hasJob:false,canRefresh:false,canRetrySync:false,canRetryImage:false,canRetryCleanup:false,saved:false,imageError:'',verificationImageError:'',verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,verificationBusy:false,interactionPending:false,gestureActive:false});
+          }
+        });
+        onBeforeUnmount(() => {
+          if (qrClockTimer !== null) clearInterval(qrClockTimer);
+          qrClockTimer = null;
+          window.removeEventListener('spark-silk-change', updateBackgroundMotion);
+          window.SparkReferenceMotion?.destroy();
+          if (qrStepMotion) qrStepMotion.dispose();
+          if (qrLoginController) { qrLoginController.dispose(); qrLoginController=null; }
+        });
+        return {
+          tab,
+          navItems,
+          status,
+          credentialDisplay,
+          sessionCheckedLabel,
+          taskDisplay,
+          loadStatus,
+          isAutoPaused,
+          progressDisplay,
+          autoResumeLabel,
+          taskStatusAnnouncement,
+          config,
+          messagesText,
+          contacts,
+          lastRunInfo,
+          totalContactCount,
+          selectedFriendCount,
+          sparkFriendCount,
+          filteredContacts,
+          searchKeyword,
+          logsContent,
+          qrLogin,
+          qrSteps,
+          qrVisualStep,
+          qrStageIndex,
+          qrRemainingSeconds,
+          qrRemainingLabel,
+          retryQrSync,
+          retryQrImage,
+          retryQrCleanup,
+          startQrLogin,
+          refreshQrLogin,
+          cancelQrLogin,
+          qrVerificationPointerDown,
+          qrVerificationPointerMove,
+          qrVerificationPointerUp,
+          qrVerificationPointerCancel,
+          syncing,
+          savingLedger,
+          savingConfig,
+          ICONS,
+          formatTime,
+          loadAll,
+          runStreak,
+          syncContacts,
+          autoSelectSparkFriends,
+          clearSelectedFriends,
+          saveLedgerSelection,
+          saveConfigForm,
+          fetchLogs,
+          clearLogs,
+          handleFileUpload,
+          authed,
+          isMobile,
+          loginResult,
+          loginError,
+          loginLoading,
+          urlAccessToken,
+          urlPassword,
+          setFluidPaused,
+          backgroundMotion,
+          backgroundMotionLabel,
+          backgroundMotionTitle,
+          toggleBackgroundMotion,
+          appVersion,
+          urlPasswordLoading,
+          doUrlPasswordLogin,
+          fetchChallenge,
+          doLogin,
+          logout,
+          iosBanner,
+          showIOSBanner,
+          avatarProxy,
+          avatarErrors,
+          deleteFriend,
+          batchDeleteSelected,
+          emailCfg,
+          savingEmail,
+          testingEmail,
+          loadEmailConfig,
+          saveEmailForm,
+          sendTestEmail,
+          emailSubView,
+          openTab,
+          selectEmail,
+          emailBtnStyle
+        };
+      }
+    });
+
+    app.use(ElementPlus);
+    // 挂载前先显示 app（防止 v-cloak 类问题导致白屏）
+    const appEl = document.getElementById('app');
+    if (appEl) appEl.style.display = '';
+    app.mount('#app');
+    // 挂载后再次确保显示
+    setTimeout(() => {
+      const el = document.getElementById('app');
+      if (el) el.style.display = '';
+    }, 100);
+
+    // 移动端登录界面强制可见修复（持续强制，防止被覆盖）
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+      const forceMobileLoginVisible = () => {
+        const card = document.querySelector('.login-card');
+        if (card) {
+          card.style.setProperty('background', '#ffffff', 'important');
+          card.style.setProperty('display', 'block', 'important');
+          card.style.setProperty('visibility', 'visible', 'important');
+          card.style.setProperty('opacity', '1', 'important');
+          card.style.setProperty('transform', 'none', 'important');
+          card.style.setProperty('animation', 'none', 'important');
+          card.style.setProperty('min-height', '420px', 'important');
+          card.style.setProperty('padding', '28px 20px 24px', 'important');
+          card.style.setProperty('box-shadow', '0 20px 60px rgba(0,0,0,0.5)', 'important');
+          card.style.setProperty('position', 'relative', 'important');
+          card.style.setProperty('z-index', '1', 'important');
+        }
+        const allInCard = document.querySelectorAll('.login-card *');
+        allInCard.forEach(el => {
+          el.style.setProperty('opacity', '1', 'important');
+          el.style.setProperty('visibility', 'visible', 'important');
+          el.style.setProperty('position', 'relative', 'important');
+          el.style.setProperty('z-index', '2', 'important');
+        });
+        const title = document.querySelector('.login-title');
+        if (title) title.style.setProperty('color', '#1D1D1F', 'important');
+        const sub = document.querySelector('.login-sub');
+        if (sub) sub.style.setProperty('color', '#6e6e73', 'important');
+        const btn = document.querySelector('.login-btn');
+        if (btn) {
+          btn.style.setProperty('background', '#007AFF', 'important');
+          btn.style.setProperty('color', '#ffffff', 'important');
+        }
+        const inputWrap = document.querySelector('.login-input-wrap .el-input__wrapper');
+        if (inputWrap) inputWrap.style.setProperty('background', '#f5f5f7', 'important');
+        const inputInner = document.querySelector('.login-input-wrap .el-input__inner');
+        if (inputInner) {
+          inputInner.style.setProperty('color', '#1D1D1F', 'important');
+          inputInner.style.setProperty('-webkit-text-fill-color', '#1D1D1F', 'important');
+        }
+        const foot = document.querySelector('.login-foot');
+        if (foot) foot.style.setProperty('color', '#8e8e93', 'important');
+      };
+      // Vue 挂载初期分几次校正即可；不再每 500ms 永久扫描整棵登录 DOM。
+      [0, 100, 500, 1500].forEach(delay => setTimeout(forceMobileLoginVisible, delay));
+      window.addEventListener('orientationchange', forceMobileLoginVisible, { passive: true });
+    }
+  </script>
+</body>
+</html>

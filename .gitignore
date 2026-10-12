@@ -1,0 +1,66 @@
+# ── 凭据：绝不入库 ──────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+# 历史版本会把登录态兼容副本写在项目根目录；即使旧文件仍在，也绝不能入库。
+/state.json
+*.pem
+*.key
+
+# ── 账号数据：含抖音登录 Cookie、好友名单、日志 ─────────────────────────────
+data/*
+!data/.gitkeep
+data/logs/
+
+# ── 运行产物 ────────────────────────────────────────────────────────────────
+*.log
+logs/
+screenshot.png
+data/last_error.png
+*.pid
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 打包产物 / 备份 ─────────────────────────────────────────────────────────
+*.tar.gz
+*.tgz
+*.zip
+*.bak
+*.bak_*
+*.orig
+*.rej
+*~
+
+# ── 编辑器 / 系统 ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── 桌面版 PyInstaller 构建输出（可用 desktop/build.py 重新生成，不入库）─────
+desktop/_build/
+desktop/dist/
+build/
+dist/
+
+# ── 多账号：账号数据目录含登录 Cookie/台账/日志，绝不入库 ────────────────────
+data/accounts/
+data/accounts.json
+data/accounts.json.tmp.*
+data/backups/
+data/*.bak-*
+
+# Local workstation snapshot records do not belong in published source.
+版本说明.txt
+版本与校验清单.json
