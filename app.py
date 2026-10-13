@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app_common import PID_PATH, STATIC_DIR, logger
-from auth_service import _check_auth_config
+from ip_guard import _check_local_bind
 from core import automation, scheduler
 from core.runtime import set_running, update_runtime
 from email_service import migrate_legacy_email_config
@@ -22,7 +22,6 @@ from instance_lock import _acquire_instance_lock
 from middleware import register_middleware
 from session_service import run_session_check
 from routers import (
-    auth as auth_router,
     config as config_router,
     contacts_ledger as contacts_ledger_router,
     credentials as credentials_router,
@@ -37,7 +36,7 @@ from watchdog_service import _start_watchdog
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    _check_auth_config()
+    _check_local_bind()
     _acquire_instance_lock()
     background_enabled = scheduler.background_tasks_enabled()
     if background_enabled:
@@ -93,7 +92,6 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 register_middleware(app)
 
 app.include_router(pages_router.router)
-app.include_router(auth_router.router)
 app.include_router(contacts_ledger_router.router)
 app.include_router(config_router.router)
 app.include_router(email_router.router)
@@ -103,7 +101,7 @@ app.include_router(qr_credentials_router.router)
 
 
 if __name__ == "__main__":
-    host = os.environ.get("HOST", "127.0.0.1")  # 加固：默认只监听本机，由 nginx 反代
+    host = os.environ.get("HOST", "127.0.0.1")
+    _check_local_bind(host)
     port = int(os.environ.get("PORT", "8000"))
-    # URL 兼容登录可能包含敏感查询串；访问日志由 Nginx 按脱敏规则负责。
-    uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
+    uvicorn.run(app, host=host, port=port, log_level="info", access_log=False, proxy_headers=False)

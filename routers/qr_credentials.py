@@ -1,66 +1,28 @@
-"""Authenticated, same-origin embedded QR login; credentials never leave the backend."""
+"""Local, same-origin embedded QR login; credentials never leave the backend."""
 from __future__ import annotations
 
-import hashlib
-import ipaddress
-import os
 import threading
 import time
 import uuid
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request, Response
 
 import app_common
-from auth_service import _check_auth
 from core import automation
 from core.config import DATA_DIR, atomic_write_bytes, state_write_path
 from core.runtime import update_runtime
 from desktop.local_cookie_helper import validate_state
+from ip_guard import _canonical_origin, _effective_origin
 
 router = APIRouter()
 _qr_manager = None
 _manager_lock = threading.Lock()
 
 
-def _canonical_origin(value: str) -> str:
-    try:
-        parsed = urlsplit(value)
-        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
-                or parsed.username or parsed.password or parsed.path not in {"", "/"}
-                or parsed.query or parsed.fragment):
-            raise ValueError()
-        host = parsed.hostname.lower().encode("idna").decode("ascii")
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        authority = f"[{host}]" if ":" in host else host
-        if port != (443 if parsed.scheme == "https" else 80):
-            authority += f":{port}"
-        return f"{parsed.scheme}://{authority}"
-    except (ValueError, UnicodeError):
-        raise HTTPException(status_code=403, detail="扫码请求来源不合法") from None
-
-
-def _loopback(host: str) -> bool:
-    if host == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
-def _check_request(request: Request, token: str, *, mutation=False) -> None:
-    _check_auth(token)
-    actual = _canonical_origin(str(request.base_url).rstrip("/"))
-    configured = os.environ.get("QR_PUBLIC_ORIGIN", "").strip()
-    if configured:
-        expected = _canonical_origin(configured)
-        if urlsplit(expected).netloc != urlsplit(actual).netloc:
-            raise HTTPException(status_code=403, detail="扫码入口主机不匹配")
-    else:
-        if not _loopback(urlsplit(actual).hostname or ""):
-            raise HTTPException(status_code=403, detail="外部扫码入口需要配置 QR_PUBLIC_ORIGIN")
-        expected = actual
+def _check_request(request: Request, *, mutation=False) -> None:
+    expected = _effective_origin(request)
+    if expected is None:
+        raise HTTPException(status_code=403, detail="扫码入口来源不合法，请检查入口配置")
     origin = request.headers.get("origin")
     if request.headers.get("sec-fetch-site", "") in {"cross-site", "same-site"}:
         raise HTTPException(status_code=403, detail="扫码接口仅允许同源访问")
@@ -163,21 +125,19 @@ def _job_key(value: str) -> str:
 
 
 @router.post("/api/credentials/qr/start")
-def start_qr(request: Request, response: Response, body: dict = Body(...),
-             token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_request(request, token, mutation=True)
+def start_qr(request: Request, response: Response, body: dict = Body(...)) -> dict:
+    _check_request(request, mutation=True)
     if set(body) != {"request_id"}:
         raise HTTPException(status_code=400, detail="扫码请求参数无效")
     try:
         request_id = str(uuid.UUID(str(body["request_id"])))
     except (ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=400, detail="扫码请求编号无效") from None
-    scoped = hashlib.sha256((token + "\0" + request_id).encode()).hexdigest()
     if not app_common.run_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="后台任务正在运行，请结束后再开始扫码")
     try:
         _get_qr_manager()
-        snapshot = _invoke("start", scoped)
+        snapshot = _invoke("start", request_id)
     finally:
         app_common.run_lock.release()
     response.headers["Cache-Control"] = "no-store"
@@ -186,9 +146,8 @@ def start_qr(request: Request, response: Response, body: dict = Body(...),
 
 @router.get("/api/credentials/qr/status")
 def qr_status(request: Request, response: Response, job_id: str,
-              job_token: str = Header(default="", alias="X-QR-Job-Token"),
-              token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_request(request, token)
+              job_token: str = Header(default="", alias="X-QR-Job-Token")) -> dict:
+    _check_request(request)
     snapshot = _invoke("status", _job_id(job_id), _job_key(job_token))
     response.headers["Cache-Control"] = "no-store"
     return _public(snapshot)
@@ -196,9 +155,8 @@ def qr_status(request: Request, response: Response, job_id: str,
 
 @router.get("/api/credentials/qr/image")
 def qr_image(request: Request, job_id: str,
-             job_token: str = Header(default="", alias="X-QR-Job-Token"),
-             token: str = Header(default="", alias="X-Auth-Token")):
-    _check_request(request, token)
+             job_token: str = Header(default="", alias="X-QR-Job-Token")):
+    _check_request(request)
     png, snapshot = _invoke("qr", _job_id(job_id), _job_key(job_token))
     if not png:
         from fastapi.responses import JSONResponse
@@ -208,9 +166,8 @@ def qr_image(request: Request, job_id: str,
 
 @router.get("/api/credentials/qr/verification-image")
 def verification_image(request: Request, job_id: str,
-                       job_token: str = Header(default="", alias="X-QR-Job-Token"),
-                       token: str = Header(default="", alias="X-Auth-Token")):
-    _check_request(request, token)
+                       job_token: str = Header(default="", alias="X-QR-Job-Token")):
+    _check_request(request)
     png, snapshot = _invoke("verification", _job_id(job_id), _job_key(job_token))
     if not png:
         from fastapi.responses import JSONResponse
@@ -220,9 +177,8 @@ def verification_image(request: Request, job_id: str,
 
 @router.post("/api/credentials/qr/verification-action")
 def verification_action(request: Request, response: Response, body: dict = Body(...),
-                        job_token: str = Header(default="", alias="X-QR-Job-Token"),
-                        token: str = Header(default="", alias="X-Auth-Token")):
-    _check_request(request, token, mutation=True)
+                        job_token: str = Header(default="", alias="X-QR-Job-Token")):
+    _check_request(request, mutation=True)
     if set(body) != {"job_id", "action_id", "verification_revision", "action", "points"}:
         raise HTTPException(status_code=400, detail="验证操作参数无效")
     snapshot = _invoke("verification_action", _job_id(body.get("job_id")), _job_key(job_token),
@@ -232,8 +188,8 @@ def verification_action(request: Request, response: Response, body: dict = Body(
     return _public(snapshot)
 
 
-def _mutate_job(method: str, request: Request, response: Response, body: dict, token: str, job_token: str):
-    _check_request(request, token, mutation=True)
+def _mutate_job(method: str, request: Request, response: Response, body: dict, job_token: str):
+    _check_request(request, mutation=True)
     if set(body) != {"job_id"}:
         raise HTTPException(status_code=400, detail="扫码请求参数无效")
     snapshot = _invoke(method, _job_id(body.get("job_id")), _job_key(job_token))
@@ -243,30 +199,26 @@ def _mutate_job(method: str, request: Request, response: Response, body: dict, t
 
 @router.post("/api/credentials/qr/refresh")
 def refresh_qr(request: Request, response: Response, body: dict = Body(...),
-               job_token: str = Header(default="", alias="X-QR-Job-Token"),
-               token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    return _mutate_job("refresh", request, response, body, token, job_token)
+               job_token: str = Header(default="", alias="X-QR-Job-Token")) -> dict:
+    return _mutate_job("refresh", request, response, body, job_token)
 
 
 @router.post("/api/credentials/qr/cancel")
 def cancel_qr(request: Request, response: Response, body: dict = Body(...),
-              job_token: str = Header(default="", alias="X-QR-Job-Token"),
-              token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    return _mutate_job("cancel", request, response, body, token, job_token)
+              job_token: str = Header(default="", alias="X-QR-Job-Token")) -> dict:
+    return _mutate_job("cancel", request, response, body, job_token)
 
 
 @router.post("/api/credentials/qr/retry-cleanup")
 def retry_cleanup_qr(request: Request, response: Response, body: dict = Body(...),
-                     job_token: str = Header(default="", alias="X-QR-Job-Token"),
-                     token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    return _mutate_job("retry_cleanup", request, response, body, token, job_token)
+                     job_token: str = Header(default="", alias="X-QR-Job-Token")) -> dict:
+    return _mutate_job("retry_cleanup", request, response, body, job_token)
 
 
 @router.post("/api/credentials/qr/recover-cleanup")
-def recover_cleanup_qr(request: Request, response: Response, body: dict = Body(...),
-                       token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def recover_cleanup_qr(request: Request, response: Response, body: dict = Body(...)) -> dict:
     """Recover closing authority after reload; never start or save a login."""
-    _check_request(request, token, mutation=True)
+    _check_request(request, mutation=True)
     if not isinstance(body, dict) or body:
         raise HTTPException(status_code=400, detail="恢复清理请求必须为空对象")
     from core.qr_login import QrLoginInvalid

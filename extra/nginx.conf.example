@@ -1,86 +1,28 @@
-# 抖音续火花后台 —— Nginx 反向代理配置示例
-#
-# 用法：
-#   1. 把本文件复制到服务器 /etc/nginx/sites-available/douyin-streak.conf
-#   2. 把下面的 server_name 改成你自己的域名
-#   3. 软链接启用：
-#        ln -s /etc/nginx/sites-available/douyin-streak.conf /etc/nginx/sites-enabled/
-#   4. nginx -t && systemctl reload nginx
-#
-# 本文件只提供 HTTP（80 端口）。HTTPS 由 Certbot 自动追加：
-#     certbot --nginx -d example.com -d www.example.com
-# 它会往本文件里补 listen 443 ssl、证书路径和 80->443 跳转，无需手写。
-
-# ============================================================================
-# 【必须手动加一次】gzip 压缩：放进 /etc/nginx/nginx.conf 的 http { } 块里
-# ----------------------------------------------------------------------------
-# 为什么必须加：Ubuntu 自带的 nginx.conf 里 `gzip on;` 是开着的，但
-# `gzip_types` **是注释掉的**，而 nginx 默认只压缩 text/html 一种类型。
-# 结果是本项目 static/vendor 下 2.3 MB 的 JS/CSS 全部以原始大小发送：
-#
-#     element-plus.full.min.js   1,042,540 B  →  gzip 后  291,220 B  (省 72%)
-#     three.min.js                 669,884 B  →  gzip 后  166,990 B  (省 75%)
-#     element-plus.css             357,825 B  →  gzip 后   47,895 B  (省 86%)
-#
-# 外网访问时这 2.3 MB 就是主要加载耗时来源，表现为后台"很卡"。
-# 取消下面 gzip_types 的注释即可，云服务器单核压缩这点静态文件的开销可忽略。
-#
-#   gzip on;
-#   gzip_vary on;
-#   gzip_min_length 1024;
-#   gzip_comp_level 6;
-#   gzip_types text/plain text/css application/json application/javascript
-#              text/xml application/xml application/xml+rss text/javascript
-#              image/svg+xml application/wasm;
-# ============================================================================
-# 注意：gzip 只对**首次**下载有意义。重复访问的优化在应用层完成——
-# 应用的 cache_policy 已区分「HTML/API 不缓存」与「vendor 库可复用缓存」。
-# ============================================================================
-
-# ============================================================================
-# 【必须手动加一次】把下面这段放进 /etc/nginx/nginx.conf 的 http { } 块里
-# ----------------------------------------------------------------------------
-# 新链接应使用 /#access_token=...（fragment 不会发送到服务器）。下面规则仅用于
-# 兼容旧版 ?access_token=... 链接，防止查询串写入 access log。
-#
-#   map $request_uri $loggable {
-#       ~access_token  0;
-#       default        1;
-#   }
-#
-# 然后在 server 块里把 access_log 改成带条件的形式（本文件已写好，见下）。
-# 注意：map 指令只能出现在 http 上下文，放进 server { } 里 nginx -t 会直接报错。
-# ============================================================================
-# 单独文件写法（推荐，改 nginx.conf 更干净）：
-#   新建 /etc/nginx/conf.d/log-filter.conf，内容为上面那个 map，然后 nginx -t。
-#
-# 如果历史日志曾记录查询串，应清理相关日志并立即轮换 URL_ACCESS_TOKEN。
-# ============================================================================
+# 可选：与后端在同一台机器上的 Nginx HTTPS 反代。
+# 后端保持 HOST=127.0.0.1、PORT=8000；先设置
+# QR_PUBLIC_ORIGIN=https://example.com 并重启后端。
+# 替换示例域名和证书路径；有非默认外部端口时，来源配置需包含该端口。
+# 面板无管理员登录门。使用者需自行限制后台的网络或代理访问范围。
 
 server {
-    listen      80;
-    listen      [::]:80;
-    server_name example.com www.example.com;   # ← 改成你的域名
+    listen 80;
+    server_name example.com;
+    return 301 https://example.com$request_uri;
+}
 
-    # 上传 data/state.json（抖音登录态）时会走这里，默认 1m 偏小
-    client_max_body_size 10m;
+server {
+    listen 443 ssl;
+    server_name example.com;
 
-    # 不记录带 access_token 的请求；$loggable 由上面的 map 提供。
-    # 如果你还没加 map，先把下面这行换成普通写法 access_log /var/log/nginx/access.log;，
-    # 否则日志条件会取不到变量。
-    access_log /var/log/nginx/access.log combined if=$loggable;
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    client_max_body_size 6m;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-Proto $scheme;
-
-        # 「立即续火花」是同步执行的，好友多时耗时较长，超时给宽一点
-        proxy_connect_timeout 60s;
-        proxy_read_timeout    300s;
-        proxy_send_timeout    300s;
+        # 覆盖客户端自带的转发声明，不透传不可信的 X-Forwarded-For 链。
+        proxy_set_header X-Forwarded-For $remote_addr;
     }
 }

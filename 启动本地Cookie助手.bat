@@ -9,5 +9,6 @@ if not exist "%HELPER_PYTHON%" (
   pause
   exit /b 1
 )
+echo [版本] 本机 Cookie 助手 2.6
 "%HELPER_PYTHON%" "%~dp0desktop\local_cookie_helper.py" %*
 if errorlevel 1 pause

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 抖音续火花 - 可重复、安全升级的 systemd 部署脚本
+# 抖音续火花 - Linux 本机 systemd 安装/升级脚本
 
 set -euo pipefail
 
@@ -45,40 +45,14 @@ if [ ! -f "$SERVICE_ENV" ]; then
   else
     install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0600 \
       "$SOURCE_DIR/.env.example" "$SERVICE_ENV"
-    echo "[需要配置] 已生成 $SERVICE_ENV，请填写真实凭据后重新运行本脚本。"
-    exit 2
+    echo "[可选配置] 已生成 $SERVICE_ENV，SMTP 等设置可在本机稍后填写。"
   fi
 fi
 
-# 在停旧服务前完成认证配置预检，避免配置错误把线上实例停在半升级状态。
-if ! STREAK_SERVICE_ENV="$SERVICE_ENV" python3 -c '
-import os, re, sys
-p = os.environ["STREAK_SERVICE_ENV"]
-cfg = {}
-with open(p, encoding="utf-8") as stream:
-    for raw in stream:
-        raw = raw.strip()
-        if raw and not raw.startswith("#") and "=" in raw:
-            key, value = raw.split("=", 1)
-            cfg[key.strip()] = value.strip()
-placeholder_prefixes = ("change_me", "changeme", "replace_me", "your_")
-def usable(value):
-    return bool(value) and not value.lower().startswith(placeholder_prefixes)
-gate_off = cfg.get("LOGIN_GATE", "on").lower() in {"off", "0", "false", "no"}
-auth = cfg.get("AUTH_TOKEN", "")
-auth_ok = len(auth) >= 24 and usable(auth)
-url_ok = bool(
-    usable(cfg.get("URL_ACCESS_TOKEN", ""))
-    and usable(cfg.get("URL_PASSWORD_SALT", ""))
-    and re.fullmatch(r"[0-9a-fA-F]{64}", cfg.get("URL_PASSWORD_HASH", ""))
-)
-# systemd 版本通常位于 Nginx 后方；即使只绑定回环地址，LOGIN_GATE=off 仍会
-# 被反向代理公开，因此服务器部署必须开启登录门并配置至少一种真实凭据。
-sys.exit(0 if not gate_off and (auth_ok or url_ok) else 1)
-'; then
-  echo "[需要配置] 服务器部署必须启用 LOGIN_GATE 并配置高强度登录凭据；未停止现有服务。"
-  exit 2
-fi
+# 只安装回环后端服务。面板无管理员登录门，默认本机访问。
+# 同机反代需在 service.env 显式设置 QR_PUBLIC_ORIGIN，并自行限制后台访问范围。
+# 本脚本不配置 Nginx 或证书；SMTP 等可选配置无需先填写即可启动。
+# 后台任务沿用既有开关与配置，不增加暂停默认值。
 SERVICE_PORT="$(STREAK_SERVICE_ENV="$SERVICE_ENV" python3 -c '
 import os
 port = 8000
@@ -94,7 +68,7 @@ with open(os.environ["STREAK_SERVICE_ENV"], encoding="utf-8") as stream:
 print(port)
 ')"
 
-echo "[3/7] 同步程序文件（保留服务器 data、环境配置、浏览器与 venv）..."
+echo "[3/7] 同步本机程序文件（保留 data、可选配置、浏览器与 venv）..."
 if systemctl cat douyin-streak.service >/dev/null 2>&1; then
   systemctl stop douyin-streak.service
 fi
@@ -141,7 +115,7 @@ systemctl restart douyin-streak.service
 echo "[7/7] 检查服务状态..."
 for _ in $(seq 1 20); do
   if curl --silent --fail "http://127.0.0.1:$SERVICE_PORT/api/health" >/dev/null; then
-    echo "部署完成：服务健康检查通过。"
+    echo "本机服务安装完成：回环健康检查通过。请在本机打开 http://127.0.0.1:$SERVICE_PORT/。"
     exit 0
   fi
   sleep 1

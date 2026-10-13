@@ -1,4 +1,12 @@
-# 抖音续火花 2.5 - 单账号部署版
+# 抖音续火花 2.6 - 单账号本机版
+
+## 2.6 更新（2026-10-13）
+
+- 移除管理员密码、令牌登录与管理门，打开面板即可使用。
+- 扫码接口报错时留在当前页显示原因，不再跳回管理登录页；同机反代仍需显式配置匹配的 `QR_PUBLIC_ORIGIN`。
+- 保留既有扫码、发送、后台任务开关与配置。
+
+升级后刷新已打开的页面即可加载 2.6。
 
 ## 2.5 更新（2026-10-12）
 
@@ -7,7 +15,7 @@
 - 刷新二维码的响应丢失或网络中断时保留本次任务，自动恢复状态查询；“重试同步”只读取结果，不重复提交刷新。
 - 二维码图片错误独立显示，状态查询成功不会清掉图片错误；“重新加载图片”只重取图片。
 - 概览区区分凭据已保存、尚未检查、上次检查有效和已失效，并显示上次确认时间；后台暂停不会再显示为定时就绪。
-- 浏览器关闭未获确认时保留任务占用，明确提示凭据是否已保存；可以手动重试关闭，确认清理完成后再允许下一次扫码。若此时刷新页面或重新登录，点击开始会先恢复待清理任务，继续提供关闭重试入口。
+- 浏览器关闭未获确认时保留任务占用，明确提示凭据是否已保存；可以手动重试关闭，确认清理完成后再允许下一次扫码。若此时刷新页面或重新打开面板，点击开始会先恢复待清理任务，继续提供关闭重试入口。
 - 增加扫码步骤与剩余时间，保留平面卡片交互。
 
 本机启动：双击项目根目录 `启动单账号本机版.bat`，访问 `http://127.0.0.1:8000/`。
@@ -81,115 +89,85 @@ node tests/test_console_status.cjs
 
 ## 项目说明
 
-这是单账号自动续火花服务，可部署到 Linux 服务器，也可构建为 Windows 桌面版。
+这是单账号控制台，可直接打开面板，无管理员登录门；抖音账号仍需由本人扫码登录。
+支持 Windows 源码启动与桌面构建，也可安装为 Linux 本机 systemd 后台服务。
+后端始终监听回环地址，默认在本机使用；也支持显式配置访问来源后，由同机 Nginx 反向代理。
+通过域名访问时，使用者需自行限制后台访问范围。
 
-## 文件结构
+## 本机启动
 
-```
-douyin-streak/
-├── app.py                  # 主程序（FastAPI + Playwright）
-├── requirements.txt        # 宽松依赖范围（开发升级用）
-├── requirements.lock       # 部署使用的已验证精确版本
-├── .env.example            # 配置模板；真实 .env 不进入仓库
-├── start.sh                # 手动启动脚本
-├── deploy.sh               # 一键部署脚本（推荐）
-├── douyin-streak.service   # systemd 服务配置（开机自启）
-├── core/                   # 核心模块
-│   ├── automation.py       # 自动化发送逻辑
-│   ├── browser.py          # 浏览器启动器
-│   ├── config.py           # 配置读写
-│   ├── ledger.py           # 好友台账
-│   ├── scheduler.py        # 定时调度
-│   └── ...
-├── static/                 # 前端管理后台静态文件
-└── data/                   # 账号数据
-    ├── state.json          # 抖音登录态（Cookie，重要！）
-    ├── config.json         # 发送配置（时间、内容等）
-    ├── ledger.json         # 好友台账（勾选的好友）
-    └── runtime.json        # 运行时状态
+Windows 先准备 Python 3.10+ 与项目虚拟环境：
+
+```powershell
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.lock
+.\venv\Scripts\python.exe -m playwright install chromium
 ```
 
-## 部署步骤
+然后双击 `启动单账号本机版.bat`，在同一台电脑打开
+`http://127.0.0.1:8000/` 即可进入控制台。
+本机 BAT 设置 `SPARKKEEPER_BACKGROUND_TASKS=0`，默认暂停后台定时任务；
+手动操作入口保留，请先使用模拟演练确认定位结果。
 
-### 方式一：一键部署（推荐）
+Linux 本机手动启动：
 
 ```bash
-# 1. 把整个文件夹上传到服务器
-scp -r douyin-streak root@你的服务器IP:/root/
-
-# 2. SSH 登录服务器
-ssh root@你的服务器IP
-
-# 3. 进入目录并执行部署
-cd /root/douyin-streak
-bash deploy.sh
-```
-
-首次部署若认证配置未填写，脚本会生成
-`/opt/douyin-streak/data/service.env` 并安全退出；填写后重新执行即可。升级会保留
-该文件、`data/`、虚拟环境与 Chromium 缓存。部署完成后服务会自动启动并开机自启。
-
-### 方式二：手动启动
-
-```bash
-cd /opt/douyin-streak  # 或你上传的目录
 bash start.sh
 ```
 
-## 管理后台使用
+脚本会准备虚拟环境与 Chromium，随后启动回环服务。无需先填写任何面板凭据。
+除本机 BAT 外，其他启动入口的后台任务沿用既有开关与配置，不强制暂停。
+`.env` 仅用于 SMTP、浏览器等可选设置；没有邮件需求时可以保持模板中的空值。
 
-部署完成后，浏览器访问：
-```
-https://你的域名          # 线上（Nginx + 证书）
-http://你的服务器IP:8000   # 直连，仅本机/内网可访问（应用默认只监听 127.0.0.1）
-```
+## 可选：Linux 本机后台服务
 
-登录页输入的访问令牌见服务器
-`/opt/douyin-streak/data/service.env` 中的 `AUTH_TOKEN`。验证成功后仅保存
-HttpOnly 短期会话，原始令牌不会写入浏览器 localStorage。
-**不要把令牌写进任何文档、脚本或源码**（本文件此前写着占位串
-`spark_secret_token_change_me`，那是无效值，容易误导）。
-
-### 主要功能
-
-- **好友与消息**：同步联系人、勾选续火花好友、设置发送内容
-- **定时与风控**：设置每天发送时间、随机浮动时间、发送间隔
-- **运行日志**：查看实时运行日志
-- **立即续火花**：手动触发一次发送（可选择干跑测试）
-
-## 安全建议
-
-1. **不要外传 `data/` 目录**：`data/state.json` 是完整的抖音登录 Cookie，
-   拿到它就等于拿到账号；`data/config.json`、`ledger.json` 含好友名单。
-   打包/备份/发给别人前务必剔除。
-2. **不要把 `.env` 放进压缩包或仓库**：里面有 `AUTH_TOKEN`、`URL_ACCESS_TOKEN`
-   与后台口令哈希。桌面构建脚本也只分发 `.env.example`，不会复制构建机凭据。
-3. **口令要够强**：`URL_PASSWORD_HASH` 对应的原始口令若为纯数字短口令，
-   配合 URL 令牌即可被离线穷举，建议改成 12 位以上随机串并重新生成
-   `URL_PASSWORD_SALT` / `URL_PASSWORD_HASH`。
-4. **防火墙**：应用默认只监听 `127.0.0.1`，只对 Nginx 开放；
-   对外只需放行 443（80 仅做跳转），不要把 8000 直接暴露到公网。
-5. **定期更新登录态**：抖音 Cookie 会过期（几天到几周），过期后需要重新提取并替换 `data/state.json`
-6. **备份**：定期备份 `data/` 目录（但注意第 1 条的敏感性）
-
-## 常用命令
+在准备运行服务的那台 Linux 电脑上执行：
 
 ```bash
-# 查看服务状态
-systemctl status douyin-streak
-
-# 查看实时日志
-journalctl -u douyin-streak -f
-
-# 重启服务
-systemctl restart douyin-streak
-
-# 停止服务
-systemctl stop douyin-streak
-
-# 启动服务
-systemctl start douyin-streak
+sudo bash deploy.sh
 ```
+
+脚本把程序安装到 `/opt/douyin-streak`，保留该机器的
+`data/`、可选 `data/service.env`、虚拟环境与浏览器缓存，安装 systemd 服务。
+服务默认监听 `127.0.0.1:8000`，后台任务遵循既有开关与配置；在运行服务的同一台电脑
+打开本机地址使用面板。自动拉起由 systemd 提供。
+
+如需通过域名访问，在 `/opt/douyin-streak/data/service.env` 中设置完整的外部来源，
+例如 `QR_PUBLIC_ORIGIN=https://example.com`，然后重启服务。来源必须包含协议、主机和
+实际使用的非默认端口，不带路径、查询参数或末尾斜杠；它必须与浏览器地址栏的来源一致。
+保持后端 `HOST=127.0.0.1`，按照 `extra/nginx.conf.example` 配置同一台机器上的 Nginx，
+替换示例域名和证书路径。安装脚本只安装本机 systemd 服务，不会配置 Nginx 或证书。
+
+反代需保留请求的 `Host`，将 `X-Forwarded-Proto` 设置为外部请求协议，
+并用实际客户端地址覆盖 `X-Forwarded-For`。后端只信任来自回环地址的代理连接，
+扫码写接口还会核对已配置的来源和浏览器 `Origin`；配置来源不会增加管理员登录门。
+请自行通过网络或代理访问范围限制保护后台。留空 `QR_PUBLIC_ORIGIN` 时继续按本机方式使用。
+
+常用本机服务命令：
+
+```bash
+systemctl status douyin-streak
+journalctl -u douyin-streak -f
+sudo systemctl restart douyin-streak
+sudo systemctl stop douyin-streak
+sudo systemctl start douyin-streak
+```
+
+## 文件与个人数据
+
+- `app.py`、`core/`、`routers/` 和 `static/` 是程序源码与本机面板。
+- `.env.example` 是不含个人设置的模板；真实 `.env` 仅保存在使用者机器上。
+- `data/state.json` 是抖音登录态；`config.json`、`ledger.json` 和日志可能包含个人账号与好友信息。
+- 公开仓库和桌面构建不携带真实 `.env`、登录态、台账、日志或其他个人数据。
+
+请只备份到自己控制的位置，不要把个人 `data/` 或 SMTP 授权码放入公开仓库和软件分发包。
+
+## 面板主要功能
+
+- **好友与消息**：同步联系人、勾选好友，查看发送配置。
+- **定时与风控**：查看发送节奏与后台任务状态；本机 BAT 默认暂停，其他入口遵循既有开关与配置。
+- **运行日志**：查看本机任务记录。
+- **立即续火花**：手动触发；模拟演练不发送真实消息。
 
 ## 面板内扫码登录与自动保存
 
@@ -217,12 +195,11 @@ systemctl start douyin-streak
 网页控制接口。取消、过期或失败不会覆盖原登录态。发送任务忙碌时不会同时替换凭据。
 只有前端得到二维码图片和脱敏状态，完整 Cookie 不进入页面、URL 或日志。
 
-本机使用无需额外配置，也不依赖 8003 服务或 `17653` 本机助手。若通过 HTTPS 域名
-反向代理访问，设置 `QR_PUBLIC_ORIGIN=https://你的面板域名`；扫码写接口会校验该
-Origin、当前认证和本次扫码的独立确认信息。不要填写其他站点的 Origin。
+本机使用无需额外配置，也不依赖 8003 服务或 `17653` 本机助手。扫码写接口继续校验
+同源请求和本次扫码的独立确认信息。经同机反代访问时，必须设置与地址栏完全一致的
+`QR_PUBLIC_ORIGIN`，否则扫码请求会被拒绝；此设置只声明允许的来源，不是后台访问凭据。
 Windows 默认优先使用已安装 Edge；也可用 `QR_LOGIN_BROWSER_CHANNEL` 选择浏览器。
-`QR_LOGIN_NETWORK_MODE` 沿用源实现的 `auto`、`direct`、`proxy` 路由；本机对比
-部署启动脚本明确使用 Edge 和直连，与当前 8003 的启动设置一致。
+`QR_LOGIN_NETWORK_MODE` 沿用源实现的 `auto`、`direct`、`proxy` 路由。
 这些选项不修改 Windows 的网络或代理配置。
 
 原手动上传入口保留。旧独立助手和 `COOKIE_EXTRACT_MODE` 兼容接口保留，但已不作为
@@ -239,7 +216,7 @@ node tests/test_qr_login_frontend.cjs
 
 ## 注意事项
 
-- 服务器需要能访问抖音网页版（国内服务器推荐）
+- 运行程序的本机需要能访问抖音网页版。
 - 首次部署会安装 Chromium 浏览器，需要约 500MB 磁盘空间
-- 建议服务器配置：1核2G 以上
+- 浏览器运行需要足够内存，建议本机至少预留 2GB 可用内存。
 - 发送频率不要太高，避免触发抖音风控

@@ -5,11 +5,10 @@ from __future__ import annotations
 import socket
 from datetime import datetime
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter
 from fastapi import HTTPException
 
 from app_common import logger
-from auth_service import _check_auth
 from email_service import (
     _render_template,
     _send_email,
@@ -31,14 +30,12 @@ def _email_config_public(cfg: dict) -> dict:
 
 
 @router.get("/api/email-config")
-def api_email_config_get(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_email_config_get() -> dict:
     return _email_config_public(load_email_config())
 
 
 @router.post("/api/email-config")
-def api_email_config_save(body: EmailConfigBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_email_config_save(body: EmailConfigBody) -> dict:
     try:
         cfg = save_email_config(body.model_dump())
     except ValueError as e:
@@ -47,9 +44,8 @@ def api_email_config_save(body: EmailConfigBody, token: str = Header(default="",
 
 
 @router.post("/api/email-test")
-def api_email_test(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_email_test() -> dict:
     """按当前配置发一封测试邮件（主题加【测试】前缀，栈位用占位文本）。"""
-    _check_auth(token)
     cfg = load_email_config()
     values = {
         "host": socket.gethostname(),

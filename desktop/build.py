@@ -38,7 +38,7 @@ EXTRA_PACKAGES = [
     "pyinstaller>=6.6",
 ]
 
-# 只读资源可以随包分发。凭据与用户数据必须由首次运行在 exe 旁边创建。
+# 只读资源可以随包分发。用户账号数据与可选 SMTP 配置只在使用者机器上创建。
 DATA_DIRS = ["static"]
 
 # uvicorn / apscheduler 存在运行时动态导入，PyInstaller 的静态分析会漏
@@ -309,7 +309,8 @@ def report(exe: str) -> None:
     print(f"  目录体积  ：{total / 1024 / 1024:.1f} MB")
     print()
     print("  分发方式：整个目录一起拷贝（不能只拷 exe）。")
-    print("  双击 DouyinStreak.exe 后：托盘出现图标，浏览器自动打开管理后台。")
+    print("  双击 DouyinStreak.exe 后：托盘出现图标，浏览器直接打开本机面板。")
+    print("  面板仅监听回环地址，后台任务沿用既有配置；可选 SMTP 配置不随包分发。")
     print()
 
 

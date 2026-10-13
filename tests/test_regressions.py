@@ -9,7 +9,6 @@ import tempfile
 import threading
 import unittest
 from unittest import mock
-from http.cookies import SimpleCookie
 from pathlib import Path
 
 
@@ -18,24 +17,14 @@ _ROOT = Path(_SANDBOX.name)
 os.environ["DATA_DIR"] = str(_ROOT / "data")
 os.environ["ENV_FILE_PATH"] = str(_ROOT / "missing.env")
 os.environ["INSTANCE_LOCK_PATH"] = str(_ROOT / "server.pid")
-os.environ["LOGIN_GATE"] = "on"
-os.environ["AUTH_TOKEN"] = "unit-test-token-that-is-long-enough-123"
-os.environ["URL_ACCESS_TOKEN"] = ""
-os.environ["URL_PASSWORD_SALT"] = ""
-os.environ["URL_PASSWORD_HASH"] = ""
+os.environ["HOST"] = "127.0.0.1"
 
 import app_common  # noqa: E402
-from auth_service import AUTH_TOKEN, _check_auth  # noqa: E402
 from core import ledger  # noqa: E402
 from core.config import load_config, save_config  # noqa: E402
 from core.runtime import load_runtime, update_runtime  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from middleware import cache_policy  # noqa: E402
-from routers.auth import (  # noqa: E402
-    api_auth_challenge,
-    api_auth_login,
-    api_auth_logout,
-)
 from routers.contacts_ledger import api_avatar  # noqa: E402
 from routers.run import api_reset_running  # noqa: E402
 from starlette.requests import Request  # noqa: E402
@@ -68,47 +57,25 @@ def _request(path: str, method: str = "GET", scheme: str = "http") -> Request:
     })
 
 
-class AuthTests(unittest.TestCase):
-    def test_challenge_no_longer_contains_public_puzzle(self) -> None:
-        body = api_auth_challenge()
-        self.assertEqual(body["auth_mode"], "token")
-        self.assertNotIn("nums", body)
-        self.assertNotIn("challenge_id", body)
+class LocalConsoleBoundaryTests(unittest.TestCase):
+    def test_local_bind_accepts_loopback_and_rejects_public_interfaces(self) -> None:
+        from ip_guard import _check_local_bind
+        for host in ("127.0.0.1", "localhost", "::1"):
+            _check_local_bind(host)
+        for host in ("0.0.0.0", "::", "192.0.2.10", "example.com"):
+            with self.assertRaises(SystemExit):
+                _check_local_bind(host)
 
-    def test_token_login_uses_httponly_cookie_and_logout_revokes_it(self) -> None:
-        response = Response()
-        body = api_auth_login(
-            response=response,
-            request=_request("/api/auth/login", "POST"),
-            body={"token": AUTH_TOKEN},
-        )
-        self.assertTrue(body["ok"])
-        cookie = SimpleCookie()
-        cookie.load(response.headers["set-cookie"])
-        morsel = cookie["session_auth_token"]
-        self.assertTrue(morsel["httponly"])
-        token = morsel.value
-        _check_auth(token)
+    def test_local_console_routes_have_no_management_login(self) -> None:
+        import app
+        paths = set(app.app.openapi()["paths"])
+        self.assertFalse(any(path.startswith("/api/auth/") for path in paths))
+        self.assertIn("/api/credentials/qr/start", paths)
 
-        logout_response = Response()
-        api_auth_logout(response=logout_response, token=token)
+    def test_avatar_proxy_still_rejects_untrusted_upstream_without_network(self) -> None:
         with self.assertRaises(HTTPException) as caught:
-            _check_auth(token)
-        self.assertEqual(caught.exception.status_code, 401)
-
-    def test_wrong_management_token_is_rejected(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
-            api_auth_login(
-                response=Response(),
-                request=_request("/api/auth/login", "POST"),
-                body={"token": "wrong"},
-            )
-        self.assertEqual(caught.exception.status_code, 401)
-
-    def test_avatar_proxy_is_not_public(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
-            api_avatar(url="https://p3.douyinpic.com/example.webp", token="")
-        self.assertEqual(caught.exception.status_code, 401)
+            api_avatar(url="http://127.0.0.1/private")
+        self.assertEqual(caught.exception.status_code, 400)
 
 
 class ReliabilityTests(unittest.TestCase):
@@ -166,7 +133,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertTrue(app_common.run_lock.acquire(blocking=False))
         try:
             with self.assertRaises(HTTPException) as caught:
-                api_reset_running(token=AUTH_TOKEN)
+                api_reset_running()
             self.assertEqual(caught.exception.status_code, 409)
             self.assertTrue(app_common.run_lock.locked())
         finally:
@@ -251,7 +218,7 @@ class LocalBackgroundModeTests(unittest.TestCase):
             async with app.lifespan(app.app):
                 pass
         with mock.patch.dict(os.environ, {"SPARKKEEPER_BACKGROUND_TASKS": "0"}), \
-             mock.patch.object(app, "_check_auth_config"), \
+             mock.patch.object(app, "_check_local_bind"), \
              mock.patch.object(app, "_acquire_instance_lock"), \
              mock.patch.object(app, "migrate_legacy_email_config") as migration, \
              mock.patch.object(app.scheduler, "configure") as configure, \

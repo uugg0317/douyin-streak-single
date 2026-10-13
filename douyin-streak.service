@@ -1,5 +1,5 @@
 [Unit]
-Description=Douyin Cloud Streak - 抖音续火花自动服务
+Description=Douyin Streak Local Console - 抖音续火花本机面板
 Wants=network-online.target
 After=network-online.target
 
@@ -11,6 +11,7 @@ WorkingDirectory=/opt/douyin-streak
 Environment="PATH=/opt/douyin-streak/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="DATA_DIR=/opt/douyin-streak/data"
 Environment="ENV_FILE_PATH=/opt/douyin-streak/data/service.env"
+Environment="HOST=127.0.0.1"
 Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/douyin-streak/.cache/ms-playwright"
 # 浏览器不常驻：每天 23:30 预启动（发送前30分钟），00:00 发送，发送完毕立即关闭
 Environment="KEEP_BROWSER_ALWAYS=false"

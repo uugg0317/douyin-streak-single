@@ -1,6 +1,6 @@
-# 桌面版（Windows）构建与使用说明
+# 桌面版 2.6（Windows）构建与使用说明
 
-把 `1.0` 从「跑在服务器上的网页服务」变成「双击即用的 Windows 桌面程序」。
+将单账号控制台封装为双击即用的 Windows 本机托盘程序，面板直接打开即可使用。
 
 ## 一、产物形态
 
@@ -19,8 +19,11 @@ desktop\_build\dist\DouyinStreak\
 体积约 400~700MB，其中绝大部分是 Chromium。
 
 构建过程不会把项目根目录的 `.env`、`data/state.json` 或台账打入产物。首次启动
-只监听 `127.0.0.1` 且默认关闭登录门；如需自定义配置，把 `.env.example` 复制为
-exe 同级 `.env`，填写随机 `AUTH_TOKEN` 后重启。
+只监听 `127.0.0.1`，打开地址直接进入面板；后台任务沿用既有开关与配置。
+如需 SMTP 等可选设置，可把 `.env.example` 复制为 exe 同级 `.env` 后编辑；
+不填写邮件设置也可以使用面板。后端保持回环监听；如需域名访问，需自行配置同机反代，
+并在 `.env` 设置匹配地址栏来源的 `QR_PUBLIC_ORIGIN`，例如 `https://example.com`。
+Nginx 的上游端口需与实际启动端口一致。此版本没有管理员登录门，使用者需自行限制后台访问范围。
 
 ## 二、为什么必须是 `--onedir`
 
@@ -34,7 +37,7 @@ exe 同级 `.env`，填写随机 `AUTH_TOKEN` 后重启。
 
 ## 三、怎么构建
 
-在项目根目录双击 **`打包桌面版.bat`**，或者在命令行执行：
+在项目根目录执行：
 
 ```
 python desktop\build.py
@@ -57,7 +60,8 @@ python desktop\build.py
 
 - 托盘出现图标（优先用 `static/fire-icon.png`，读不到就画一个火焰色圆点）；
 - 后台服务起在 `127.0.0.1:8000`（被占用会自动顺延到 8001~8009）；
-- 自动打开浏览器进入管理后台。
+- 自动打开浏览器进入本机面板，无需管理登录。
+- 后台任务沿用既有开关与配置；项目根目录的本机 BAT 才会默认设置 `SPARKKEEPER_BACKGROUND_TASKS=0`。
 
 **托盘菜单**：
 
@@ -90,14 +94,14 @@ python desktop\build.py
 
 ## 六、调试
 
-改完代码想快速验证，用 **`调试运行.bat`**，它直接用
-`desktop\_build\.venv` 的解释器跑 `launcher.py`，跳过打包（几秒 vs 几分钟）。
+准备好桌面依赖后，可用 `desktop\_build\.venv\Scripts\python.exe desktop\launcher.py`
+直接运行启动器，跳过重新打包。
 
 ## 七、已知限制
 
 - **控制台窗口会保留**（`--console`）。确认稳定后可把 `desktop/build.py` 里的
   `--console` 改成 `--noconsole`，但那样出问题就看不到报错了。
-- **只在构建机上验证过**。换机器需实测：Chromium 路径解析、托盘图标、
+- **桌面产物需要在目标 Windows 机器上验证**：Chromium 路径解析、托盘图标、
   杀毒软件是否拦截 PyInstaller 产物（误报较常见）。
 - **托盘菜单的"提取登录凭证"目前只打开后台首页**，没有直接切到凭证页 ——
   管理后台是单页应用，tab 切换没有走 URL 路由，要直达得改前端。

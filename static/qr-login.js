@@ -32,7 +32,7 @@
     return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
   }
   function create(options) {
-    if (!options || !options.api) throw new Error('QR login requires the authenticated API client');
+    if (!options || !options.api) throw new Error('QR login requires a same-origin API client');
     const api = options.api;
     let disposed = false, generation = 0, pollTimer = null, job = null, pendingAction = null;
     let lastImageAt = 0, lastRevision = null, imagePending = false, notifiedJob = null, qrRequest = null;
@@ -110,9 +110,9 @@
     }
     function cancelRequest(active, keepalive) {
       if (!active) return Promise.resolve(null);
-      // Axios' fetch adapter preserves the same API interceptors and HttpOnly
-      // credentials while allowing navigation/unmount cancellation to finish.
-      const config = {headers:headers(active,true), withCredentials:true, timeout:15000};
+      // Keep the same API client for navigation/unmount cancellation;
+      // only the QR job capability and same-origin marker authorize the job.
+      const config = {headers:headers(active,true), timeout:15000};
       if (keepalive) { config.adapter='fetch'; config.fetchOptions={keepalive:true}; }
       return api.post(BASE + '/cancel', {job_id:active.id}, config).then(response => response.data);
     }
@@ -173,7 +173,7 @@
       const active=job, controller=new AbortController(), request={controller}; reads.add(controller); imagePending=true;qrRequest=request;
       lastImageAt=Date.now();lastRevision=revision;
       try {
-        const response=await api.get(BASE+'/image', {params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,withCredentials:true,timeout:10000});
+        const response=await api.get(BASE+'/image', {params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,timeout:10000});
         if (!current(attempt) || job?.id !== active.id || STOP.has(state.status) || state.status==='verification_required' || qrRequest!==request) return false;
         lastImageAt=Date.now();
         if (response.status === 202 || response.status === 204) return false;
@@ -199,7 +199,7 @@
       const active=job, frame={...verification},controller=new AbortController(),request={controller};
       verificationRequest=request;reads.add(controller);lastVerificationAt=Date.now();
       try {
-        const response=await api.get(BASE+'/verification-image',{params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,withCredentials:true,timeout:10000});
+        const response=await api.get(BASE+'/verification-image',{params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,timeout:10000});
         if(!current(attempt) || job?.id!==active.id || state.status!=='verification_required' || interaction || verification.busy ||
           verificationRequest!==request || frame.revision!==verification.revision || frame.width!==verification.width || frame.height!==verification.height)return false;
         if(response.status===202 || response.status===204)return false;
@@ -230,7 +230,7 @@
       if (!current(attempt) || !job || STOP.has(state.status)) return false;
       const active=job, controller=new AbortController(),serial=++statusSerial; reads.add(controller);
       try {
-        const response=await api.get(BASE+'/status', {params:{job_id:active.id},headers:headers(active,false),signal:controller.signal,withCredentials:true,timeout:10000});
+        const response=await api.get(BASE+'/status', {params:{job_id:active.id},headers:headers(active,false),signal:controller.signal,timeout:10000});
         if (!current(attempt) || job?.id !== active.id || serial<minimumStatusSerial) return false;
         apply(response.data,attempt,serial);
         if (!STOP.has(state.status) && serial>=minimumStatusSerial)refreshVisibleImage(attempt,false,response.data?.qr_revision ?? null);
@@ -251,14 +251,14 @@
       stopReads(); clearImage();clearVerification(); lastImageAt=0;lastRevision=null;
       publish({status:'starting',running:true,message:kind==='refresh'?'正在刷新二维码…':LABELS.starting,canRefresh:false,deadline:0,saved:false,cleanupComplete:true});
       const data=kind==='start'?{request_id:uuid()}:{job_id:previous.id};
-      const promise=api.post(BASE+'/'+kind,data,{headers:headers(kind==='start'?null:previous,true),withCredentials:true,timeout:15000})
+      const promise=api.post(BASE+'/'+kind,data,{headers:headers(kind==='start'?null:previous,true),timeout:15000})
         .then(response=>response.data).catch(async originalError=>{
           // A reload loses the in-memory capability. Recover only an already
           // blocked cleanup task; never restart it or replay a cleanup action.
           if(kind!=='start'||originalError?.response?.status!==409||!current(attempt))throw originalError;
           publish({message:'正在检查上次登录浏览器的清理状态…'});
           try{
-            const response=await api.post(BASE+'/recover-cleanup',{}, {headers:headers(null,true),withCredentials:true,timeout:15000});
+            const response=await api.post(BASE+'/recover-cleanup',{}, {headers:headers(null,true),timeout:15000});
             const recovered=response.data;
             if(recovered?.status!=='cleanup_pending'||recovered.cleanup_complete!==false)throw originalError;
             return recovered;
@@ -321,7 +321,7 @@
       const attempt=generation,active=job;
       minimumStatusSerial=statusSerial+1;
       stopReads();statusError='';
-      const promise=api.post(BASE+'/retry-cleanup',{job_id:active.id},{headers:headers(active,true),withCredentials:true,timeout:15000}).then(response=>response.data);
+      const promise=api.post(BASE+'/retry-cleanup',{job_id:active.id},{headers:headers(active,true),timeout:15000}).then(response=>response.data);
       const action={promise,previous:active,attempt,kind:'cleanup'};pendingAction=action;publish({});
       try{
         const data=await promise;
@@ -401,7 +401,7 @@
       try {
         // A genuine pointer gesture is submitted once. Network errors never replay it.
         const response=await api.post(BASE+'/verification-action',{job_id:submittedJob.id,action_id:uuid(),verification_revision:active.revision,action,points},
-          {headers:headers(submittedJob,true),withCredentials:true,timeout:15000});
+          {headers:headers(submittedJob,true),timeout:15000});
         if(!current(active.attempt) || interaction!==active || job?.id!==submittedJob.id)return false;
         active.phase='queued';minimumStatusSerial=statusSerial+1;
         apply(response.data,active.attempt);

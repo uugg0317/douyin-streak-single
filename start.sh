@@ -1,11 +1,14 @@
 #!/bin/bash
-# 抖音续火花 - 单账号启动脚本
+# 抖音续火花 - 单账号本机启动脚本
 # 用法: bash start.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# 后端保持回环监听；后台任务沿用既有开关与配置。
+export HOST="127.0.0.1"
 
 # 检查 Python
 if ! command -v python3 &> /dev/null; then
@@ -34,8 +37,7 @@ fi
 if [ ! -f "$ENV_FILE_PATH" ]; then
     cp "$SCRIPT_DIR/.env.example" "$ENV_FILE_PATH"
     chmod 600 "$ENV_FILE_PATH"
-    echo "[需要配置] 已生成 $ENV_FILE_PATH，请填写随机 AUTH_TOKEN 后重新运行。"
-    exit 2
+    echo "[可选配置] 已生成 $ENV_FILE_PATH，可稍后填写 SMTP 等设置；现在继续启动本机面板。"
 fi
 
 # 仅在依赖清单变化时安装，避免每次启动都联网并改动运行环境。
@@ -63,7 +65,7 @@ fi
 # 启动应用
 echo "[3/3] 启动抖音续火花服务..."
 echo "  管理后台: http://127.0.0.1:8000"
-echo "  访问令牌: 见 $ENV_FILE_PATH 的 AUTH_TOKEN（脚本不回显明文）"
+echo "  面板直接打开；后台任务遵循现有开关与配置。"
 echo "  按 Ctrl+C 停止"
 echo ""
 

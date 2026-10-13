@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import app_common
-from fastapi import APIRouter, Header
+from fastapi import APIRouter
 from fastapi import HTTPException
 
 from app_common import logger
-from auth_service import _check_auth
 from core import ledger
 from core.config import load_config
 from core.runtime import set_running
@@ -18,8 +17,7 @@ router = APIRouter()
 
 
 @router.post("/api/run")
-def api_run(body: RunBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_run(body: RunBody) -> dict:
     targets = ledger.get_selected()
     if not targets:
         cfg = load_config()
@@ -30,9 +28,8 @@ def api_run(body: RunBody, token: str = Header(default="", alias="X-Auth-Token")
 
 
 @router.post("/api/reset-running")
-def api_reset_running(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_reset_running() -> dict:
     """仅修复无持锁线程时遗留的界面状态，绝不释放其它线程持有的锁。"""
-    _check_auth(token)
     if app_common.run_lock.locked():
         raise HTTPException(
             status_code=409,

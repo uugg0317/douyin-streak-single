@@ -3,7 +3,7 @@
 No Cookie values, storage-state contents, tickets, remote upload or browser are
 created here. The helper only simulates local export and reports safe status/count.
 Run: python tests/local_cookie_fixture.py
-Website: http://127.0.0.1:8765/ (dummy login: fixture-management-token)
+Website: http://127.0.0.1:8765/ (opens directly without a management login)
 Helper: http://127.0.0.1:17653/ (a clearly marked simulated helper popup)
 GET /__test/state exposes safe counters, old endpoint calls and fake browser flags.
 POST /__test/control: auto_complete_seconds (null for manual), expire, cancelled.
@@ -22,8 +22,6 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = (ROOT / "static").resolve()
-TOKEN = "fixture-management-token"
-COOKIE = "local_export_fixture_session"
 ALLOWED_SUFFIXES = {".html", ".js", ".css", ".svg", ".png", ".jpg", ".webp", ".woff", ".woff2", ".ico"}
 
 
@@ -68,15 +66,13 @@ class BaseHandler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-    def respond(self, body, code=200, content_type="application/json; charset=utf-8", cookie=None):
+    def respond(self, body, code=200, content_type="application/json; charset=utf-8"):
         raw = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        if cookie:
-            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         try:
             self.wfile.write(raw)
@@ -108,9 +104,6 @@ class BaseHandler(BaseHTTPRequestHandler):
 
 
 class CloudHandler(BaseHandler):
-    def authenticated(self):
-        return f"{COOKIE}=dummy" in self.headers.get("Cookie", "") or self.headers.get("X-Auth-Token") == TOKEN
-
     def serve_static(self, path):
         if path == "/":
             path = "/static/index.html"
@@ -141,15 +134,11 @@ class CloudHandler(BaseHandler):
                                      "browser_open": FIXTURE.browser_open, "browser_closed": FIXTURE.browser_closed,
                                      "exported_locally": FIXTURE.exported_locally, "website_received_login_state": False})
         if path == "/api/health":
-            return self.respond({"ok": True, "app": "sparkkeeper", "version": "2.3", "fixture": True})
-        if path == "/api/auth/challenge":
-            return self.respond({"login_gate": True, "auth_mode": "token", "authenticated": self.authenticated()})
+            return self.respond({"ok": True, "app": "sparkkeeper", "version": "2.6", "fixture": True})
         if not path.startswith("/api/"):
             return self.serve_static(path)
-        if not self.authenticated():
-            return self.error(401, "请登录隔离模拟网站")
         if path == "/api/status":
-            return self.respond({"version": "2.3", "running": False, "has_state": False,
+            return self.respond({"version": "2.6", "running": False, "has_state": False,
                                  "session_status": "unknown", "next_run": None, "next_backup": None,
                                  "last_run": None, "manual_required": False, "auto_run_enabled": False,
                                  "schedule_enabled": False, "latest_result": None})
@@ -165,7 +154,9 @@ class CloudHandler(BaseHandler):
             return self.respond({"logs": "隔离模拟：未连接真实抖音账号，网站未接收登录态。"})
         if path == "/api/browser/status":
             return self.respond({"running": False, "open": False})
-        return self.respond({})
+        if path == "/api/email-config":
+            return self.respond({})
+        return self.error(404, "Unknown simulated website endpoint")
 
     def do_POST(self):
         path = unquote(urlsplit(self.path).path)
@@ -184,18 +175,9 @@ class CloudHandler(BaseHandler):
                     if data.get("cancelled"):
                         FIXTURE.finish("cancelled")
                     return self.respond({"ok": True, "status": FIXTURE.snapshot()})
-            if path == "/api/auth/login":
-                if self.data().get("token") != TOKEN:
-                    return self.error(401, "模拟管理令牌不正确")
-                return self.respond({"ok": True}, cookie=f"{COOKIE}=dummy; Path=/; HttpOnly; SameSite=Lax")
-            if path == "/api/auth/logout":
-                self.body()
-                return self.respond({"ok": True}, cookie=f"{COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
             self.body()
             with FIXTURE.lock:
                 FIXTURE.calls.append({"method": "POST", "path": path})
-            if not self.authenticated():
-                return self.error(401, "请登录隔离模拟网站")
             return self.error(400, "此模拟网站不执行其他任务或接收登录态")
         except (ValueError, TypeError, json.JSONDecodeError):
             self.error(400, "Invalid fixture request")
@@ -285,7 +267,7 @@ def main():
     helper_thread = threading.Thread(target=helper.serve_forever, daemon=True)
     helper_thread.start()
     print(f"Local-only fixture website: {FIXTURE.website_origin}/", flush=True)
-    print(f"Dummy token: {TOKEN}; simulated helper: http://127.0.0.1:17653/", flush=True)
+    print("Simulated helper: http://127.0.0.1:17653/", flush=True)
     try:
         cloud.serve_forever()
     except KeyboardInterrupt:

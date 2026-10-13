@@ -2,21 +2,35 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const assert = require('node:assert/strict');
 const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
 const script = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].find(m => !/\bsrc\s*=/.test(m[1]) && m[2].includes('const { createApp'))[2];
-function mount() {
-  let component, response = {}, ledgerResponse = {entries:[]}, failure = false;
-  const backgroundPauses = [];
-  const hooks = [], timers = new Map(); let timerId = 0;
-  const api = {async post(url) {assert.equal(url, '/api/auth/login');return {data:{ok:true}};},interceptors:{response:{use(){}}}, async get(url) {
-    if (url === '/api/status') {if (failure) throw Error('offline'); return {data:response};}
+function mount({search=''} = {}) {
+  let component, response = {}, ledgerResponse = {entries:[]}, failure = null, statusHandler = null;
+  const backgroundPauses = [], events = [], calls = [], storageCalls = [], mounted = [], before = [], unmounted = [];
+  const timers = new Map(); let timerId = 0, cleaned = false;
+  const record = (method, url, config={}) => {
+    assert(!url.startsWith('/api/auth/'), 'Management authentication request is forbidden');
+    for (const key of Object.keys(config.headers || {})) assert(!/^(?:x-auth-token|authorization)$/i.test(key), 'Management authentication header is forbidden');
+    assert(!Object.hasOwn(config, 'withCredentials'), 'No forced management-cookie transport');
+    calls.push({method,url,config});events.push(method+' '+url);
+  };
+  const api = {async post(url, data, config={}) {record('POST',url,config);throw Error('No business mutations are allowed in console status tests');},interceptors:{response:{use(){}}},async get(url,config={}) {
+    record('GET',url,config);
+    if (url === '/api/status') {if (failure) throw failure;if(statusHandler)return statusHandler();return {data:response};}
     if (url === '/api/ledger') return {data:ledgerResponse};
-    assert(['/api/config','/api/logs','/api/email-config'].includes(url)); return {data:{}};
+    if (url === '/api/health') return {data:{version:'2.6'}};
+    assert(['/api/config','/api/logs','/api/email-config'].includes(url));return {data:{}};
   }};
-  const Vue = {ref:value=>({value}), reactive:value=>value, computed:fn=>({get value(){return fn();}}), watch(){}, nextTick:()=>Promise.resolve(), onMounted(){}, onUnmounted:fn=>hooks.push(fn), onBeforeUnmount:fn=>hooks.push(fn), createApp(options){component=options.setup();return {use(){return this;},mount(){}};}};
-  const window = {innerWidth:1280,location:{origin:'http://127.0.0.1:8000',href:'http://127.0.0.1:8000/',search:'',hash:''},history:{replaceState(){}},matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}}),addEventListener(){},removeEventListener(){}};
-  window.SparkSilkBackground={getState:()=>({enabled:true,available:true,reducedMotion:false,running:true}),setInputPaused:value=>backgroundPauses.push(value)};
-  vm.runInNewContext(script,{Vue,window,document:{getElementById:()=>({style:{}}),querySelector:()=>null},ElementPlus:{},axios:{create:()=>api},URL,URLSearchParams,console:{error(){},log(){}},localStorage:{removeItem(){},getItem(){return null}},setTimeout(){return 1;},clearTimeout(){},setInterval(fn){const id=++timerId;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);}}, {filename:'actual-console-v25.js'});
-  return {c:component,backgroundPauses,setResponse(value){response=value;},setLedger(value){ledgerResponse=value;},fail(){failure=true;},cleanup(){hooks.forEach(fn=>fn());}};
+  const Vue = {ref:value=>({value}),reactive:value=>value,computed:fn=>({get value(){return fn();}}),watch(){},nextTick:fn=>Promise.resolve().then(fn),onMounted:fn=>mounted.push(fn),onUnmounted:fn=>unmounted.push(fn),onBeforeUnmount:fn=>before.push(fn),createApp(options){component=options.setup();return {use(){return this;},mount(){}};}};
+  const app = {style:{display:'none'}};
+  const document = {title:'isolated-console',getElementById:()=>app,querySelector:()=>null,querySelectorAll:()=>[]};
+  const window = {innerWidth:1280,location:{origin:'http://127.0.0.1:8000',href:'http://127.0.0.1:8000/'+search,search,hash:''},history:{replaceState(){throw Error('No management URL-token rewrite is expected');}},matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}}),addEventListener(){},removeEventListener(){}};
+  window.SparkSilkBackground={getState:()=>({enabled:true,available:true,reducedMotion:false,running:true}),setInputPaused:value=>{backgroundPauses.push(value);events.push('pause:'+value);}};
+  const storage={};for(const method of ['getItem','setItem','removeItem','clear'])storage[method]=(...args)=>{storageCalls.push({method,args});throw Error('Management browser storage is forbidden');};
+  vm.runInNewContext(script,{Vue,window,document,ElementPlus:{},axios:{create(config={}){record('CREATE','axios',config);return api;}},URL,URLSearchParams,console:{error(){},log(){}},localStorage:storage,sessionStorage:storage,setTimeout(){return 1;},clearTimeout(){},setInterval(fn,delay){const id=++timerId;timers.set(id,{fn,delay});return id;},clearInterval(id){timers.delete(id);}}, {filename:'actual-console-v26.js'});
+  return {c:component,app,document,events,calls,storageCalls,timers,backgroundPauses,setResponse(value){response=value;},setLedger(value){ledgerResponse=value;},setStatusHandler(fn){statusHandler=fn;},fail(code){failure=code?{response:{status:code,data:{detail:'isolated business error'}}}:Error('offline');},recover(){failure=null;},async mounted(){for(const fn of mounted)await fn();},cleanup(){if(cleaned)return;cleaned=true;before.forEach(fn=>fn());unmounted.forEach(fn=>fn());}};
 }
+function deferred() {let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
+async function flush() {for(let index=0;index<12;index++)await Promise.resolve();}
+
 const tests = [];
 async function test(name, fn) {await fn();tests.push(name);}
 (async()=>{
@@ -29,10 +43,35 @@ async function test(name, fn) {await fn();tests.push(name);}
  await test('Manual active task remains visible while background work is paused',()=>{const h=mount();Object.assign(h.c.status,{status_connected:true,background_tasks_enabled:false,running:true});assert.equal(h.c.taskDisplay.value.label,'正在执行');h.cleanup();});
  await test('No registered next run is not called scheduled-ready',()=>{const h=mount();Object.assign(h.c.status,{status_connected:true,background_tasks_enabled:true,next_run:null});h.c.config.auto_run_enabled=true;assert.equal(h.c.taskDisplay.value.label,'等待调度');h.c.status.next_run='2030-01-01T00:00:00+08:00';assert.equal(h.c.taskDisplay.value.label,'等待定时执行');h.cleanup();});
  await test('Circuit breaker has precedence over ready schedule',()=>{const h=mount();Object.assign(h.c.status,{status_connected:true,background_tasks_enabled:true,auto_paused_until:Date.now()/1000+600,next_run:'2030-01-01T00:00:00+08:00'});assert.equal(h.c.taskDisplay.value.label,'异常冷却中');h.cleanup();});
- await test('Real loadStatus consumes verification and process state from API',async()=>{const h=mount();h.setResponse({version:'2.5',state_file_exists:true,session_status:'expired',session_checked_at:1700000000,background_tasks_enabled:false,next_run:null});assert.equal(await h.c.loadStatus(),true);assert.equal(h.c.status.session_status,'expired');assert.equal(h.c.status.session_checked_at,1700000000);assert.equal(h.c.taskDisplay.value.label,'后台已暂停');assert.equal(h.c.credentialDisplay.value.label,'已失效，需扫码');h.cleanup();});
+ await test('Real loadStatus consumes verification and process state from API',async()=>{const h=mount();h.setResponse({version:'2.6',state_file_exists:true,session_status:'expired',session_checked_at:1700000000,background_tasks_enabled:false,next_run:null});assert.equal(await h.c.loadStatus(),true);assert.equal(h.c.status.session_status,'expired');assert.equal(h.c.status.session_checked_at,1700000000);assert.equal(h.c.taskDisplay.value.label,'后台已暂停');assert.equal(h.c.credentialDisplay.value.label,'已失效，需扫码');h.cleanup();});
  await test('Failed status polling removes stale green confidence',async()=>{const h=mount();Object.assign(h.c.status,{status_connected:true,state_file_exists:true,session_status:'ok',session_checked_at:1700000000,background_tasks_enabled:true});h.fail();assert.equal(await h.c.loadStatus(),false);assert.equal(h.c.credentialDisplay.value.label,'状态待同步');assert.equal(h.c.taskDisplay.value.label,'等待状态同步');h.cleanup();});
- await test('QR recovery controls and progress are wired without a popup',()=>{const h=mount();for(const name of ['retryQrSync','retryQrImage','retryQrCleanup']){assert.equal(typeof h.c[name],'function');assert(html.includes('@click="'+name+'"'));}assert(html.includes('qr-countdown'));assert(html.includes('qr-steps'));assert.equal(h.c.appVersion.value,'2.5');h.cleanup();});
- await test('Successful Enter login clears input-focus pause even without a blur event',async()=>{const h=mount();h.c.setFluidPaused(true);h.c.loginResult.value='isolated-login-fixture';await h.c.doLogin();assert.equal(h.c.authed.value,true);assert.deepEqual(h.backgroundPauses,[true,false]);h.cleanup();});
+ await test('QR recovery controls and progress are wired without a popup',()=>{const h=mount();for(const name of ['retryQrSync','retryQrImage','retryQrCleanup']){assert.equal(typeof h.c[name],'function');assert(html.includes('@click="'+name+'"'));}assert(html.includes('qr-countdown'));assert(html.includes('qr-steps'));assert.equal(h.c.appVersion.value,'2.6');h.cleanup();});
+ await test('Mounted public console loads business state directly and releases input-focus pause',async()=>{
+  const h=mount();h.c.setFluidPaused(true);h.setResponse({version:'2.6',background_tasks_enabled:false});await h.mounted();
+  assert.equal(h.app.style.display,'');assert.equal(h.c.status.status_connected,true);assert.deepEqual(h.backgroundPauses,[true,false]);
+  for(const url of ['/api/health','/api/status','/api/config','/api/ledger','/api/logs','/api/email-config'])assert(h.calls.some(call=>call.url===url),url+' should load at mount');
+  assert(h.events.indexOf('pause:false')<h.events.indexOf('GET /api/status'));assert.equal(h.timers.size,1);assert.equal([...h.timers.values()][0].delay,10000);assert.equal(h.storageCalls.length,0);h.cleanup();assert.equal(h.timers.size,0);
+ });
+ await test('Public setup exposes no management gate and ignores management-looking URL tokens without storage or headers',async()=>{
+  const h=mount({search:'?token=untrusted-management-value&auth_token=another-unused-value'});await h.mounted();
+  for(const key of ['authed','loginResult','loginError','loginLoading','doLogin','logout','fetchChallenge'])assert(!(key in h.c),key+' should be absent');
+  assert.equal(typeof h.c.initializeConsole,'function');assert(!/\/api\/auth\/|X-Auth-Token|session_auth_token|device_auth_token|v-if="!?authed"|@click="logout"/.test(html));
+  assert(!JSON.stringify(h.calls).includes('untrusted-management-value'));assert(!JSON.stringify(h.calls).includes('another-unused-value'));assert.equal(h.storageCalls.length,0);h.cleanup();
+ });
+ await test('Business 401 and 403 failures keep ordinary status recovery without a management gate',async()=>{
+  for(const code of [401,403]){const h=mount();h.c.tab.value='credentials';h.fail(code);await h.mounted();assert.equal(h.c.tab.value,'credentials');assert.equal(h.c.status.status_connected,false);assert.equal(h.c.credentialDisplay.value.label,'状态待同步');assert.equal(h.timers.size,1);assert(!('authed' in h.c));assert.equal(h.c.iosBanner.visible,false);assert(!h.calls.some(call=>call.url.startsWith('/api/auth/')));assert.equal(h.storageCalls.length,0);h.cleanup();}
+ });
+ await test('A failed initial status read recovers through the existing poller without a login round-trip',async()=>{
+  const h=mount();h.fail();await h.mounted();assert.equal(h.c.status.status_connected,false);const poll=[...h.timers.values()][0];h.recover();h.setResponse({version:'2.6',background_tasks_enabled:false,state_file_exists:true,session_status:'ok',session_checked_at:1700000000});await poll.fn();
+  assert.equal(h.c.credentialDisplay.value.label,'上次检查有效');assert.equal(h.timers.size,1);assert(!h.calls.some(call=>call.url.startsWith('/api/auth/')));h.cleanup();
+ });
+ await test('Reinitialization keeps a single poller and uses the active-task cadence',async()=>{
+  const h=mount();await h.c.initializeConsole();h.setResponse({running:true,background_tasks_enabled:false});await h.c.initializeConsole();assert.equal(h.timers.size,1);assert.equal([...h.timers.values()][0].delay,1500);h.cleanup();assert.equal(h.timers.size,0);
+ });
+ await test('Unmount during initialization cannot apply late status or restart polling',async()=>{
+  const h=mount(),late=deferred();h.setStatusHandler(()=>late.promise);const initializing=h.c.initializeConsole();await flush();h.cleanup();late.resolve({data:{version:'9.9',running:true,consecutive_failures:3}});await initializing;await flush();
+  assert.equal(h.c.status.status_connected,false);assert.equal(h.document.title,'isolated-console');assert.equal(h.timers.size,0);const before=h.calls.length;await h.c.initializeConsole();assert.equal(h.calls.length,before);
+ });
  await test('Recent dry-run results are read from status and do not claim messages were sent',async()=>{
   const h=mount();h.setResponse({last_run:{at:'2026-10-12T12:00:00+08:00',dry_run:true,ok:['演练成功对象'],failed:Array.from({length:8},(_,i)=>({name:'未找到对象'+i,reason:'模拟未找到'})),deferred:[],skipped:[]}});await h.c.loadStatus();
   assert.match(h.c.lastRunInfo.summary,/模拟演练/);assert.match(h.c.lastRunInfo.summary,/(?:通过|成功)\s*1/);assert.match(h.c.lastRunInfo.summary,/失败\s*8/);assert.match(h.c.lastRunInfo.summary,/待处理\s*0/);assert(!/已发送|消息已发送/.test(h.c.lastRunInfo.summary));assert(h.c.lastRunInfo.time);assert.equal(h.c.lastRunInfo.success,false);h.cleanup();

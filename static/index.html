@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>抖音自动续火花 2.5 · Douyin Cloud Streak</title>
+  <title>抖音自动续火花 2.6 · Douyin Cloud Streak</title>
   <link rel="icon" type="image/png" href="/static/favicon.png" />
   <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="apple-touch-icon" href="/static/favicon.png" />
@@ -1323,292 +1323,26 @@
         padding: 10px;
       }
 
-      /* 移动端登录界面优化 - 高优先级选择器，强制不透明 */
-      .login-gate {
-        position: fixed !important;
-        inset: 0 !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        z-index: 10000 !important;
-        background: rgba(0, 0, 0, 0.3) !important;
-        padding: 16px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-      }
-      .login-gate .login-card {
-        background: #ffffff !important;
-        padding: 28px 20px 24px !important;
-        width: 100% !important;
-        max-width: 360px !important;
-        min-height: 420px !important;
-        margin: 0 auto !important;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        transform: none !important;
-        transform-style: flat !important;
-        will-change: auto !important;
-        position: relative !important;
-        z-index: 1 !important;
-        animation: none !important;
-        -webkit-animation: none !important;
-      }
-      .login-gate .login-card * {
-        opacity: 1 !important;
-        visibility: visible !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .login-logo {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-      }
-      .login-gate .login-title {
-        color: #1D1D1F !important;
-        font-size: 22px !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .login-sub {
-        color: #6e6e73 !important;
-        font-size: 13px !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .challenge-nums {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .challenge-num {
-        width: 40px !important;
-        height: 48px !important;
-        font-size: 22px !important;
-        background: #f5f5f7 !important;
-        color: #1D1D1F !important;
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        transform: none !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .login-input-wrap {
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .login-input-wrap .el-input__wrapper {
-        background: #f5f5f7 !important;
-        box-shadow: 0 0 0 1px rgba(0,0,0,0.15) inset !important;
-      }
-      .login-gate .login-input-wrap .el-input__inner {
-        color: #1D1D1F !important;
-        -webkit-text-fill-color: #1D1D1F !important;
-      }
-      .login-gate .login-btn {
-        background: #007AFF !important;
-        color: #ffffff !important;
-        height: 44px !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .login-error {
-        color: #d70015 !important;
-        background: rgba(255, 59, 48, 0.1) !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
-      .login-gate .login-foot {
-        color: #8e8e93 !important;
-        font-size: 10px !important;
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: relative !important;
-        z-index: 2 !important;
-      }
     }
 
-    /* ===== 密钥登录门 - Apple 风格 ===== */
-    .login-gate {
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      background: rgba(0, 0, 0, 0.2);
-    }
-    .login-card {
-      width: 100%;
-      max-width: 380px;
-      background: rgba(255, 255, 255, 0.1) !important;
-      border-radius: 22px;
-      padding: 40px 32px 32px;
-      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.25) !important;
-      text-align: center;
-      animation: loginPop 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-      border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    }
     @keyframes loginPop {
       from { transform: translateY(20px) scale(0.96); opacity: 0; }
       to   { transform: translateY(0) scale(1);    opacity: 1; }
-    }
-    .login-logo {
-      width: 96px;
-      height: 96px;
-      margin: 0 auto 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: none;
-      border-radius: 0;
-      filter: drop-shadow(0 10px 18px rgba(255, 90, 30, 0.35));
-      animation: logoFloat 3.5s ease-in-out infinite;
-      will-change: transform;
-    }
-    .login-logo img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      display: block;
     }
     @keyframes logoFloat {
       0%, 100% { transform: translate3d(0, 0, 0); filter: drop-shadow(0 10px 18px rgba(255, 90, 30, 0.35)); }
       50% { transform: translate3d(0, -5px, 0); filter: drop-shadow(0 16px 26px rgba(255, 90, 30, 0.45)); }
     }
-    .login-logo .icon-svg { width: 48px; height: 48px; }
-    .login-title {
-      margin: 0 0 8px;
-      font-size: 27px;
-      font-weight: 700;
-      color: #f5f5f7 !important;
-      letter-spacing: -0.03em;
-      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      animation: textFloat 4s ease-in-out infinite;
-      will-change: transform;
-      -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-    }
-    .login-sub {
-      margin: 0 0 24px;
-      font-size: 14px;
-      font-weight: 500;
-      color: #a1a1a6 !important;
-      letter-spacing: -0.01em;
-      text-shadow: none;
-      animation: textFloat 4s ease-in-out infinite;
-      animation-delay: 0.4s;
-      will-change: transform;
-      -webkit-font-smoothing: antialiased;
-    }
-    @keyframes textFloat {
+@keyframes textFloat {
       0%, 100% { transform: translate3d(0, 0, 0); }
       50% { transform: translate3d(0, -3px, 0); }
     }
-    .login-error {
-      margin-top: 14px;
-      padding: 10px 14px;
-      font-size: 13px;
-      color: #d70015;
-      background: rgba(255, 59, 48, 0.1);
-      border: none;
-      border-radius: 12px;
-      text-align: left;
-    }
-    .login-btn { width: 100%; margin-top: 18px; height: 46px; font-size: 15px; font-weight: 600; border-radius: 14px !important; background: rgba(255, 255, 255, 0.18) !important; color: #1D1D1F !important; border: 1px solid rgba(255, 255, 255, 0.4) !important; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.3); transition: transform 0.2s ease; }
-    .login-btn:hover { background: rgba(255, 255, 255, 0.18) !important; transform: scale(1.02); }
-    .login-foot {
-      margin: 18px 0 0;
-      font-size: 11.5px;
-      color: #6e6e73 !important;
-      text-shadow: none;
-      animation: textFloat 4.5s ease-in-out infinite;
-      animation-delay: 0.8s;
-      will-change: transform;
-    }
 
-    /* 挑战-响应：5个随机数字卡片 */
-    .challenge-nums {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin: 8px 0 14px;
-    }
-    .challenge-num {
-      width: 48px;
-      height: 56px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(255, 255, 255, 0.15) !important;
-      border: 1px solid rgba(255, 255, 255, 0.35) !important;
-      border-radius: 14px;
-      font-size: 28px;
-      font-weight: 700;
-      color: #1D1D1F !important;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.3);
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -0.02em;
-      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
-      -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-      animation: numPop 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
     @keyframes numPop {
       from { transform: scale(0.8) translateY(-8px); opacity: 0; }
       to   { transform: scale(1) translateY(0); opacity: 1; }
     }
-    .challenge-refresh {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      background: none;
-      border: none;
-      color: var(--color-accent);
-      font-size: 12.5px;
-      font-weight: 500;
-      cursor: pointer;
-      padding: 4px 8px;
-      margin-bottom: 14px;
-      border-radius: 8px;
-      transition: var(--transition);
-      letter-spacing: -0.01em;
-      text-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
-    }
-    .challenge-refresh:hover { background: rgba(0, 122, 255, 0.08); transform: translateY(-1px); }
-    .challenge-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
-    .challenge-refresh .icon-svg { width: 13px; height: 13px; }
-    .login-input-wrap { margin-top: 4px; }
-    /* ==========================================================================
+/* ==========================================================================
        苹果风格增强：3D卡片 / 错开淡入 / 渐变按钮 / 滚动阻尼
        ========================================================================== */
 
@@ -1730,83 +1464,14 @@
       box-shadow: 0 6px 18px rgba(0, 122, 255, 0.25);
     }
 
-    /* 登录按钮苹果风格强化 */
-    .login-btn {
-      position: relative !important;
-      overflow: hidden !important;
-      background: rgba(255, 255, 255, 0.18) !important;
-      border: 1px solid rgba(255, 255, 255, 0.4) !important;
-      border-radius: 14px !important;
-      height: 48px !important;
-      font-size: 15px !important;
-      font-weight: 600 !important;
-      letter-spacing: -0.01em !important;
-      color: #1D1D1F !important;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.3) !important;
-      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-                  box-shadow 0.3s ease !important;
-    }
-    .login-btn:hover {
-      transform: translateY(-3px) scale(1.02) !important;
-      background: rgba(255, 255, 255, 0.18) !important;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255,255,255,0.35) !important;
-    }
-    .login-btn:active {
-      transform: translateY(0) scale(0.96) !important;
-    }
-
-    /* 数字卡片苹果质感强化 */
-    .challenge-num {
-      background: rgba(255, 255, 255, 0.15) !important;
-      border: 1px solid rgba(255, 255, 255, 0.35) !important;
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.3) !important;
-      font-variant-numeric: tabular-nums !important;
-      color: #1D1D1F !important;
-      animation: numPopStrong 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
-                  box-shadow 0.2s ease !important;
-    }
-    .challenge-num:hover {
-      transform: translateY(-4px) scale(1.08) !important;
-      background: rgba(255, 255, 255, 0.15) !important;
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.35) !important;
-    }
-    .challenge-nums .challenge-num:nth-child(1) { animation-delay: 0.1s !important; }
-    .challenge-nums .challenge-num:nth-child(2) { animation-delay: 0.18s !important; }
-    .challenge-nums .challenge-num:nth-child(3) { animation-delay: 0.26s !important; }
-    .challenge-nums .challenge-num:nth-child(4) { animation-delay: 0.34s !important; }
-    .challenge-nums .challenge-num:nth-child(5) { animation-delay: 0.42s !important; }
-    @keyframes numPopStrong {
+@keyframes numPopStrong {
       0% { transform: scale(0.5) translateY(-16px) rotate(-8deg); opacity: 0; }
       60% { transform: scale(1.1) translateY(2px) rotate(2deg); opacity: 1; }
       100% { transform: scale(1) translateY(0) rotate(0); opacity: 1; }
     }
 
     /* 输入框苹果风格 - 不透明背景，确保可见 */
-    .login-input-wrap .el-input__wrapper {
-      background: #f5f5f7 !important;
-      border: 1px solid rgba(0, 0, 0, 0.1) !important;
-      border-radius: 12px !important;
-      box-shadow: 0 0 0 1px transparent !important;
-      transition: all 0.25s ease !important;
-      padding: 4px 15px !important;
-    }
-    .login-input-wrap .el-input__wrapper:hover {
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15) !important;
-    }
-    .login-input-wrap .el-input__wrapper.is-focus {
-      box-shadow: none !important;
-      background: #ffffff !important;
-    }
-    .login-input-wrap .el-input__inner {
-      color: #1D1D1F !important;
-      -webkit-text-fill-color: #1D1D1F !important;
-    }
-    .login-input-wrap .el-input__inner::placeholder {
-      color: #999999 !important;
-    }
-
-    /* 侧边导航 iOS 分组风格 */
+/* 侧边导航 iOS 分组风格 */
     .side-nav {
       background: rgba(255, 255, 255, 0.12) !important;
       backdrop-filter: blur(24px) saturate(180%) !important;
@@ -1932,83 +1597,8 @@
     </div>
     </Teleport>
 
-    <!-- 管理令牌登录门：Teleport 到 body，避免 iOS WebKit 下 #app 层叠上下文吞掉 fixed 登录门 -->
-    <Teleport to="body">
-    <div v-if="!authed" class="login-gate" style="z-index:10000;background:transparent;padding:16px;display:flex;visibility:visible;opacity:1;">
-      <div class="login-card" style="background:#ffffff !important;padding:28px 20px 24px;max-width:380px;min-height:420px;box-shadow:0 20px 60px rgba(0,0,0,0.5);display:block;visibility:visible;opacity:1;transform:none;animation:none;position:relative;z-index:1;">
-        <h2 class="login-title" style="color:#1D1D1F !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">抖音自动续火花 {{ appVersion }}</h2>
-
-        <!-- URL 令牌 + 密码验证界面 -->
-        <template v-if="urlAccessToken">
-          <p class="login-sub" style="color:#6e6e73 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">请输入访问密码（该设备最长30天免登录）</p>
-          <div class="login-input-wrap" style="display:block;visibility:visible;opacity:1;position:relative;z-index:2;margin-top:20px;">
-            <el-input
-              v-model="urlPassword"
-              placeholder="请输入访问密码"
-              size="large"
-              type="password"
-              show-password
-              autocomplete="off"
-              @focus="setFluidPaused(true)"
-              @blur="setFluidPaused(false)"
-              @keyup.enter="doUrlPasswordLogin"
-            />
-          </div>
-          <div v-if="loginError" class="login-error" style="color:#d70015 !important;background:rgba(255,59,48,0.1) !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">⚠ {{ loginError }}</div>
-          <el-button
-            type="primary"
-            size="large"
-            class="login-btn"
-            :loading="urlPasswordLoading"
-            @click="doUrlPasswordLogin"
-            style="background:#007AFF !important;color:#ffffff !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;margin-top:20px;"
-          >
-            验证并进入
-          </el-button>
-          <p class="login-foot" style="color:#8e8e93 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">会话仅存服务内存；服务重启后需重新验证</p>
-        </template>
-
-        <!-- 管理令牌登录界面 -->
-        <template v-else>
-          <p class="login-sub" style="color:#6e6e73 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">请输入服务器 .env 中配置的安全令牌</p>
-          <div class="login-input-wrap" style="display:block;visibility:visible;opacity:1;position:relative;z-index:2;">
-            <el-input
-              v-model="loginResult"
-              placeholder="请输入 AUTH_TOKEN"
-              size="large"
-              clearable
-              type="password"
-              show-password
-              autocomplete="current-password"
-              @focus="setFluidPaused(true)"
-              @blur="setFluidPaused(false)"
-              @keyup.enter="doLogin"
-            />
-          </div>
-
-          <div v-if="loginError" class="login-error" style="color:#d70015 !important;background:rgba(255,59,48,0.1) !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">⚠ {{ loginError }}</div>
-          <el-button
-            type="primary"
-            size="large"
-            class="login-btn"
-            :loading="loginLoading"
-            @click="doLogin"
-            style="background:#007AFF !important;color:#ffffff !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;"
-          >
-            验证并进入
-          </el-button>
-          <p class="login-foot" style="color:#8e8e93 !important;display:block;visibility:visible;opacity:1;position:relative;z-index:2;">验证后生成 24 小时 HttpOnly 会话；令牌不会写入浏览器存储</p>
-        </template>
-      </div>
-    </div>
-    </Teleport>
-
-    <div v-if="!authed" class="login-motion-control"><button class="motion-toggle" type="button" @click="toggleBackgroundMotion" :disabled="backgroundMotion.reducedMotion || !backgroundMotion.available" :aria-pressed="backgroundMotion.enabled && !backgroundMotion.reducedMotion && backgroundMotion.available" :aria-label="backgroundMotionTitle" :title="backgroundMotionTitle">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7c3-5 6 5 9 0s6 5 9 0M3 12c3-5 6 5 9 0s6 5 9 0M3 17c3-5 6 5 9 0s6 5 9 0" /></svg>
-              <span>{{ backgroundMotionLabel }}</span>
-            </button></div>
     <!-- 顶部导航栏 -->
-    <header class="topbar" v-show="authed">
+    <header class="topbar">
       <div class="topbar-inner">
         <div class="brand">
           <div class="brand-icon" aria-hidden="true"><img src="/static/fire-icon.png" style="width:88%;height:88%;object-fit:contain;display:block;margin:auto;" /></div>
@@ -2029,11 +1619,11 @@
     </header>
 
     <!-- 主体容器 -->
-    <div class="app-container" v-show="authed">
+    <div class="app-container">
       <div class="shell">
         <!-- 侧边 / 底部导航栏（移动端 Teleport 到 body，避免 iOS 合成器因 #app 高度不足而丢弃 fixed 底栏） -->
         <Teleport to="body" :disabled="!isMobile">
-        <nav class="side-nav" v-show="authed" aria-label="功能导航">
+        <nav class="side-nav" aria-label="功能导航">
           <button
             v-for="item in navItems"
             :key="item.name"
@@ -2514,7 +2104,6 @@
       </div>
     </div>
 
-    <!-- 旧的令牌弹窗已由全屏密钥登录门替代 -->
   </div>
 
   <!-- 流体背景脚本 -->
@@ -2526,7 +2115,7 @@
   <script src="/static/vendor/vue.global.prod.js"></script>
   <script src="/static/vendor/element-plus.full.min.js"></script>
   <script src="/static/vendor/axios.min.js"></script>
-  <script src="/static/qr-login.js?v=2.5-20261012"></script>
+  <script src="/static/qr-login.js?v=2.6-noadmin-20261013"></script>
 
   <script>
     const { createApp, ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -2548,8 +2137,6 @@
         const syncing = ref(false);
         const savingLedger = ref(false);
         const savingConfig = ref(false);
-        // 管理后台登录状态
-        const authed = ref(false);
         // 移动端标记：仅移动端把 fixed 底栏/横幅 Teleport 到 body，脱离 #app 层叠上下文（PC 端留在 grid 内）
         const isMobile = ref(false);
         try {
@@ -2559,13 +2146,7 @@
           mqList.addEventListener('change', onMqChange);
           onUnmounted(() => mqList.removeEventListener('change', onMqChange));
         } catch (e) {}
-        const loginResult = ref('');
-        const loginError = ref('');
-        const loginLoading = ref(false);
-        // URL 令牌 + 密码验证状态
-        const urlAccessToken = ref('');
-        const appVersion = ref('2.5');
-        const urlPassword = ref('');
+        const appVersion = ref('2.6');
         function setFluidPaused(v) { window.SparkSilkBackground?.setInputPaused(!!v); }
         const backgroundMotion = reactive(window.SparkSilkBackground?.getState() || {enabled:true,available:false,reducedMotion:false,running:false});
         const updateBackgroundMotion = event => Object.assign(backgroundMotion, event.detail || {});
@@ -2573,28 +2154,8 @@
         const backgroundMotionLabel = computed(() => backgroundMotion.reducedMotion ? '静态背景' : backgroundMotion.enabled && backgroundMotion.available ? '动态背景' : '静态背景');
         const backgroundMotionTitle = computed(() => backgroundMotion.reducedMotion ? '已遵循系统减少动态效果设置' : !backgroundMotion.available ? '当前设备使用静态背景' : backgroundMotion.enabled ? '暂停动态背景' : '开启动感背景');
         function toggleBackgroundMotion() { window.SparkSilkBackground?.setEnabled(!backgroundMotion.enabled); }
-        const urlPasswordLoading = ref(false);
-        // 推荐把 access_token 放在 URL fragment（#access_token=...），fragment 不会
-        // 发给 Nginx/应用日志；仍兼容旧 query 链接，并在读取后立刻清理地址栏。
-        const urlParams = new URLSearchParams(window.location.search);
-        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-        const urlTokenFromUrl = hashParams.get('access_token') || urlParams.get('access_token') || '';
-        if (urlTokenFromUrl) {
-          urlAccessToken.value = urlTokenFromUrl;
-        }
-        // 令牌只保留在当前页面内存，避免进入后续历史、书签或复制链接。
-        const stripUrlToken = () => {
-          try {
-            const u = new URL(window.location.href);
-            u.searchParams.delete('access_token');
-            const hp = new URLSearchParams(u.hash.replace(/^#/, ''));
-            hp.delete('access_token');
-            const hash = hp.toString() ? '#' + hp.toString() : '';
-            window.history.replaceState({}, '', u.pathname + (u.search || '') + hash);
-          } catch (e) { /* 忽略：清理地址栏失败不影响登录 */ }
-        };
-        if (urlTokenFromUrl) stripUrlToken();
         let statusTimer = null;
+        let consoleDisposed = false;
         const searchKeyword = ref('');
         const avatarErrors = ref(new Set());
         const avatarProxy = (url) => url ? `/api/avatar?url=${encodeURIComponent(url)}` : '';
@@ -2641,7 +2202,7 @@
         ];
 
         const status = reactive({
-          version: '2.5',
+          version: '2.6',
           state_file_exists: false,
           session_status: 'unknown',
           session_checked_at: null,
@@ -2653,7 +2214,7 @@
           auto_paused_until: 0,
           send_progress: null,
         });
-        const BASE_DOC_TITLE = '抖音自动续火花 2.5 · Douyin Cloud Streak';
+        const BASE_DOC_TITLE = '抖音自动续火花 2.6 · Douyin Cloud Streak';
         let pollDelay = 10000;
 
         const config = reactive({
@@ -2732,25 +2293,6 @@
         }
 
         const api = axios.create();
-        api.interceptors.response.use(
-          (res) => res,
-          (err) => {
-            if (err.response && err.response.status === 403) {
-              authed.value = false;
-              loginError.value = (err.response.data && err.response.data.detail) || '该 IP 已被锁定';
-              loginResult.value = '';
-              if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-            } else if (err.response && err.response.status === 401) {
-              if (authed.value) {
-                authed.value = false;
-                loginError.value = '会话已失效，请重新验证';
-                loginResult.value = '';
-                if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-              }
-            }
-            return Promise.reject(err);
-          }
-        );
 
         const totalContactCount = computed(() => contacts.value.length);
         const selectedFriendCount = computed(() => contacts.value.filter(c => c.selected).length);
@@ -2846,8 +2388,10 @@
         };
 
         const loadStatus = async () => {
+          if (consoleDisposed) return false;
           try {
             const res = await api.get('/api/status');
+            if (consoleDisposed) return false;
             status.status_connected = true;
             status.version = res.data.version || status.version;
             status.session_status = res.data.session_status || 'unknown';
@@ -3233,111 +2777,16 @@
           }
         };
 
-        // URL 令牌 + 密码验证：验证通过后设备30天免登录
-        const doUrlPasswordLogin = async () => {
-          const pwd = (urlPassword.value || '').trim();
-          if (!pwd) {
-            loginError.value = '请输入访问密码';
-            return;
-          }
-          urlPasswordLoading.value = true;
-          loginError.value = '';
-          try {
-            const res = await api.post('/api/auth/url-token-login', {
-              access_token: urlAccessToken.value,
-              password: pwd
-            });
-            if (res.data && res.data.ok) {
-              // 设备令牌由服务端写入 HttpOnly Cookie，前端脚本不可读取。
-              localStorage.removeItem('dcs_auth_token');
-              stripUrlToken();
-              urlPassword.value = '';
-              await enterSystem();
-            } else {
-              loginError.value = '验证响应异常，请重试';
-            }
-          } catch (e) {
-            if (e.response && e.response.status === 401) {
-              loginError.value = (e.response.data && e.response.data.detail) || '访问令牌或密码不正确';
-            } else {
-              loginError.value = '无法连接服务器，请稍后重试';
-            }
-          } finally {
-            urlPasswordLoading.value = false;
-          }
-        };
-
-        // 验证通过后的统一进入动作
-        const enterSystem = async () => {
-          // Enter may remove the focused login input without dispatching blur.
+        // The public console starts directly; only QR jobs use capabilities.
+        const initializeConsole = async () => {
+          if (consoleDisposed) return;
           setFluidPaused(false);
-          authed.value = true;
-          loginError.value = '';
-          try { await loadAll(); } catch (e) { /* 状态加载失败不拦截进入 */ }
+          try { await loadAll(); } catch (_) { /* State polling can recover later. */ }
+          if (consoleDisposed) return;
           if (statusTimer) clearInterval(statusTimer);
           pollDelay = status.running ? 1500 : 10000;
           statusTimer = setInterval(loadStatus, pollDelay);
           stabilizeCards();
-        };
-
-        // 兼容旧调用点；公开计算公式已经停用。
-        const fetchChallenge = async () => {
-          loginError.value = '';
-        };
-
-        // 点击「验证并进入」：用 AUTH_TOKEN 换取短期 HttpOnly 会话。
-        const doLogin = async () => {
-          const val = (loginResult.value || '').trim();
-          if (!val) {
-            loginError.value = '请输入安全令牌';
-            return;
-          }
-          loginLoading.value = true;
-          loginError.value = '';
-          try {
-            const res = await api.post('/api/auth/login', {
-              token: val
-            });
-            if (res.data && res.data.ok) {
-              localStorage.removeItem('dcs_auth_token');
-              loginResult.value = '';
-              await enterSystem();
-            } else {
-              loginError.value = '登录响应异常，请重试';
-            }
-          } catch (e) {
-            localStorage.removeItem('dcs_auth_token');
-            if (e.response && e.response.status === 401) {
-              loginError.value = '安全令牌不正确';
-              loginResult.value = '';
-            } else if (e.response && e.response.status === 400) {
-              loginError.value = (e.response.data && e.response.data.detail) || '请求格式不正确';
-            } else if (e.response && e.response.status === 403) {
-              loginError.value = (e.response.data && e.response.data.detail) || '该 IP 已被锁定';
-            } else {
-              loginError.value = '无法连接服务器，请稍后重试';
-            }
-          } finally {
-            loginLoading.value = false;
-          }
-        };
-
-        // 退出 / 锁定后台，回到登录门
-        const logout = async () => {
-          // Cancel while the authenticated HttpOnly session is still available.
-          if (qrLoginController) {
-            const cancellingController = qrLoginController;
-            await Promise.race([cancellingController.cancel(), new Promise(resolve => setTimeout(resolve, 1200))]);
-            cancellingController.dispose();
-            if (qrLoginController === cancellingController) qrLoginController = null;
-          }
-          try { await api.post('/api/auth/logout'); } catch (e) { /* 忽略注销错误 */ }
-          authed.value = false;
-          localStorage.removeItem('dcs_auth_token');
-          if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-          loginResult.value = '';
-          loginError.value = '';
-          await fetchChallenge();
         };
 
         // 导航栏滚动效果：透明 → 毛玻璃
@@ -3367,36 +2816,15 @@
         watch(tab, stabilizeCards);
 
         onMounted(async () => {
-          // 确保 app 可见（防止任何异常导致白屏）
           const appEl = document.getElementById('app');
           if (appEl) appEl.style.display = '';
-          try {
-            const hv = await api.get('/api/health');
-            if (hv.data.version) appVersion.value = hv.data.version;
-          } catch (_) {}
-          try {
-          // HttpOnly Cookie 会由浏览器自动携带；先探测会话或白名单旁路。
           initScrollEffect();
           stabilizeCards();
-          // 清理 1.5 及更早版本遗留在 localStorage 的明文令牌。
-          localStorage.removeItem('dcs_auth_token');
-          loginLoading.value = true;
-          try {
-            await api.get('/api/status');
-            await enterSystem();
-          } catch (e) {
-            await fetchChallenge();
-          } finally {
-            loginLoading.value = false;
-          }
-          } catch (e) {
-            console.error('onMounted error:', e);
-            // 出错时确保显示登录门
-            authed.value = false;
-            try { await fetchChallenge(); } catch (e2) {}
-          }
+          api.get('/api/health').then(res => {
+            if (!consoleDisposed && res.data.version) appVersion.value = res.data.version;
+          }).catch(() => {});
+          await initializeConsole();
         });
-
 
         function getQrLoginController() {
           if (qrLoginController) return qrLoginController;
@@ -3405,36 +2833,33 @@
             api,
             onChange: updateQrPresentation,
             onSuccess: async () => {
-              if (!authed.value) return;
+              if (consoleDisposed) return;
               const synced = await loadStatus();
+              if (consoleDisposed) return;
               if (!synced) throw new Error('status_refresh_failed');
-              if (authed.value) showIOSBanner('登录成功', 'state.json 已自动更新，无需手动上传');
+              if (!consoleDisposed) showIOSBanner('登录成功', 'state.json 已自动更新，无需手动上传');
             }
           });
           return qrLoginController;
         }
         function startQrLogin() {
-          if (qrLogin.running || !authed.value) return;
+          if (qrLogin.running || consoleDisposed) return;
           try { return getQrLoginController().start(); }
           catch (_) { Object.assign(qrLogin,{status:'failed',running:false,message:'二维码登录组件未加载，请刷新页面后重试。'}); }
         }
-        function refreshQrLogin() { if (qrLoginController && authed.value) return qrLoginController.refresh(); }
+        function refreshQrLogin() { if (qrLoginController && !consoleDisposed) return qrLoginController.refresh(); }
         function cancelQrLogin() { if (qrLoginController) return qrLoginController.cancel(); }
-        function retryQrSync() { if (qrLoginController && authed.value) return qrLoginController.retrySync(); }
-        function retryQrImage() { if (qrLoginController && authed.value) return qrLoginController.retryImage(); }
-        function retryQrCleanup() { if (qrLoginController && authed.value) return qrLoginController.retryCleanup(); }
-        function qrVerificationPointerDown(event) { if (qrLoginController && authed.value) return qrLoginController.verificationPointerDown(event); }
-        function qrVerificationPointerMove(event) { if (qrLoginController && authed.value) return qrLoginController.verificationPointerMove(event); }
-        function qrVerificationPointerUp(event) { if (qrLoginController && authed.value) return qrLoginController.verificationPointerUp(event); }
+        function retryQrSync() { if (qrLoginController && !consoleDisposed) return qrLoginController.retrySync(); }
+        function retryQrImage() { if (qrLoginController && !consoleDisposed) return qrLoginController.retryImage(); }
+        function retryQrCleanup() { if (qrLoginController && !consoleDisposed) return qrLoginController.retryCleanup(); }
+        function qrVerificationPointerDown(event) { if (qrLoginController && !consoleDisposed) return qrLoginController.verificationPointerDown(event); }
+        function qrVerificationPointerMove(event) { if (qrLoginController && !consoleDisposed) return qrLoginController.verificationPointerMove(event); }
+        function qrVerificationPointerUp(event) { if (qrLoginController && !consoleDisposed) return qrLoginController.verificationPointerUp(event); }
         function qrVerificationPointerCancel(event) { if (qrLoginController) return qrLoginController.verificationPointerCancel(event); }
-        watch(authed, value => {
-          if (!value) {
-            if (qrLoginController) { qrLoginController.dispose(); qrLoginController=null; }
-            if (qrStepMotion) qrStepMotion.update({status:'idle',running:false,hasJob:false});
-            Object.assign(qrLogin,{status:'idle',running:false,message:'请先验证网站访问权限。',error:'',imageUrl:'',deadline:0,hasJob:false,canRefresh:false,canRetrySync:false,canRetryImage:false,canRetryCleanup:false,saved:false,imageError:'',verificationImageError:'',verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,verificationBusy:false,interactionPending:false,gestureActive:false});
-          }
-        });
         onBeforeUnmount(() => {
+          consoleDisposed = true;
+          if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+          if (iosBannerTimer) { clearTimeout(iosBannerTimer); iosBannerTimer = null; }
           if (qrClockTimer !== null) clearInterval(qrClockTimer);
           qrClockTimer = null;
           window.removeEventListener('spark-silk-change', updateBackgroundMotion);
@@ -3486,6 +2911,7 @@
           ICONS,
           formatTime,
           loadAll,
+          initializeConsole,
           runStreak,
           syncContacts,
           autoSelectSparkFriends,
@@ -3495,24 +2921,13 @@
           fetchLogs,
           clearLogs,
           handleFileUpload,
-          authed,
           isMobile,
-          loginResult,
-          loginError,
-          loginLoading,
-          urlAccessToken,
-          urlPassword,
           setFluidPaused,
           backgroundMotion,
           backgroundMotionLabel,
           backgroundMotionTitle,
           toggleBackgroundMotion,
           appVersion,
-          urlPasswordLoading,
-          doUrlPasswordLogin,
-          fetchChallenge,
-          doLogin,
-          logout,
           iosBanner,
           showIOSBanner,
           avatarProxy,
@@ -3544,54 +2959,6 @@
       if (el) el.style.display = '';
     }, 100);
 
-    // 移动端登录界面强制可见修复（持续强制，防止被覆盖）
-    const isMobile = window.innerWidth <= 768;
-    if (isMobile) {
-      const forceMobileLoginVisible = () => {
-        const card = document.querySelector('.login-card');
-        if (card) {
-          card.style.setProperty('background', '#ffffff', 'important');
-          card.style.setProperty('display', 'block', 'important');
-          card.style.setProperty('visibility', 'visible', 'important');
-          card.style.setProperty('opacity', '1', 'important');
-          card.style.setProperty('transform', 'none', 'important');
-          card.style.setProperty('animation', 'none', 'important');
-          card.style.setProperty('min-height', '420px', 'important');
-          card.style.setProperty('padding', '28px 20px 24px', 'important');
-          card.style.setProperty('box-shadow', '0 20px 60px rgba(0,0,0,0.5)', 'important');
-          card.style.setProperty('position', 'relative', 'important');
-          card.style.setProperty('z-index', '1', 'important');
-        }
-        const allInCard = document.querySelectorAll('.login-card *');
-        allInCard.forEach(el => {
-          el.style.setProperty('opacity', '1', 'important');
-          el.style.setProperty('visibility', 'visible', 'important');
-          el.style.setProperty('position', 'relative', 'important');
-          el.style.setProperty('z-index', '2', 'important');
-        });
-        const title = document.querySelector('.login-title');
-        if (title) title.style.setProperty('color', '#1D1D1F', 'important');
-        const sub = document.querySelector('.login-sub');
-        if (sub) sub.style.setProperty('color', '#6e6e73', 'important');
-        const btn = document.querySelector('.login-btn');
-        if (btn) {
-          btn.style.setProperty('background', '#007AFF', 'important');
-          btn.style.setProperty('color', '#ffffff', 'important');
-        }
-        const inputWrap = document.querySelector('.login-input-wrap .el-input__wrapper');
-        if (inputWrap) inputWrap.style.setProperty('background', '#f5f5f7', 'important');
-        const inputInner = document.querySelector('.login-input-wrap .el-input__inner');
-        if (inputInner) {
-          inputInner.style.setProperty('color', '#1D1D1F', 'important');
-          inputInner.style.setProperty('-webkit-text-fill-color', '#1D1D1F', 'important');
-        }
-        const foot = document.querySelector('.login-foot');
-        if (foot) foot.style.setProperty('color', '#8e8e93', 'important');
-      };
-      // Vue 挂载初期分几次校正即可；不再每 500ms 永久扫描整棵登录 DOM。
-      [0, 100, 500, 1500].forEach(delay => setTimeout(forceMobileLoginVisible, delay));
-      window.addEventListener('orientationchange', forceMobileLoginVisible, { passive: true });
-    }
   </script>
 </body>
 </html>

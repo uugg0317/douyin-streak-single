@@ -22,7 +22,8 @@ import threading
 import time
 import webbrowser
 
-APP_NAME = "抖音续火花"
+APP_VERSION = "2.6"
+APP_NAME = f"抖音续火花 {APP_VERSION}"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 PORT_SCAN_RANGE = 10          # 8000 被占就顺延试 8001..8009
@@ -54,7 +55,7 @@ def anchor_cwd() -> None:
     """锚定工作目录。
 
     必须做：双击 exe 时 cwd 可能是 C:\\Windows\\System32，
-    而 app.py 的 _load_env() 与 nginx 示例都按相对路径找文件。
+    保证可选配置和本机资源使用稳定的程序目录。
     """
     try:
         os.chdir(BASE_DIR)
@@ -152,6 +153,7 @@ class ServerThread(threading.Thread):
                 port=self.port,
                 log_level="info",
                 access_log=False,      # 本地自用，关掉访问日志省点 IO
+                proxy_headers=False,   # 来源守卫需要真实的回环对端，不能先被代理头改写
             )
             self._server = uvicorn.Server(config)
             self._server.run()
@@ -187,7 +189,7 @@ def wait_until_ready(port: int, timeout: float = SERVER_READY_TIMEOUT) -> bool:
 def build_icon_image(hot: bool = False):
     """生成托盘图标。
 
-    优先用项目自带的 fire-icon.png（登录门也在用它，风格一致），
+    优先用项目自带的 fire-icon.png，与面板风格保持一致，
     读不到就画一个火焰色圆点兜底，绝不因为缺图标而启动失败。
     """
     from PIL import Image, ImageDraw
@@ -366,6 +368,7 @@ class TrayApp:
 def main() -> int:
     anchor_cwd()
     load_desktop_env()
+    os.environ["HOST"] = HOST
 
     browsers = setup_browsers_path()
     print(f"[信息] 程序目录：{BASE_DIR}")

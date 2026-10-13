@@ -7,12 +7,11 @@ import os
 from pathlib import Path
 
 import app_common
-from fastapi import APIRouter, File, Header, UploadFile
+from fastapi import APIRouter, File, UploadFile
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from app_common import logger
-from auth_service import _check_auth
 from core.config import (
     DATA_DIR,
     STATE_PATH,
@@ -33,9 +32,7 @@ def _state_write_path() -> Path:
 @router.post("/api/credentials/upload")
 async def api_upload_state(
     file: UploadFile = File(...),
-    token: str = Header(default="", alias="X-Auth-Token"),
 ) -> dict:
-    _check_auth(token)
     raw = await file.read(5 * 1024 * 1024 + 1)
     if len(raw) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="文件过大")
@@ -80,8 +77,7 @@ async def api_upload_state(
 
 
 @router.get("/api/logs")
-def api_logs(n: int = 300, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_logs(n: int = 300) -> dict:
     return {"logs": "\n".join(recent_logs(max(10, min(n, 600))))}
 
 
@@ -92,8 +88,7 @@ LOCAL_COOKIE_MODE = app_common._env("COOKIE_EXTRACT_MODE") or "local-client"
 
 
 @router.get("/api/credentials/local-helper-info")
-def api_local_helper_info(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_local_helper_info() -> dict:
     if LOCAL_COOKIE_MODE != "local-client":
         raise HTTPException(status_code=400, detail="COOKIE_EXTRACT_MODE 请设置为 local-client。")
     return {"mode": "local-client", "helper_url": LOCAL_HELPER_URL,
@@ -101,19 +96,16 @@ def api_local_helper_info(token: str = Header(default="", alias="X-Auth-Token"))
 
 
 @router.post("/api/credentials/extract")
-def api_credentials_extract(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_credentials_extract() -> dict:
     raise HTTPException(status_code=410, detail="提取已改为本机助手。请启动电脑上的启动本地Cookie助手.bat，并刷新页面使用本机提取按钮。")
 
 
 @router.get("/api/credentials/extract-status")
-def api_credentials_extract_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_credentials_extract_status() -> dict:
     return {"running": False, "status": "idle", "count": 0, "error": None,
             "mode": "local-client", "automatic_upload": False}
 
 
 @router.get("/api/credentials/extract-screenshot")
-def api_credentials_extract_screenshot(token: str = Header(default="", alias="X-Auth-Token")):
-    _check_auth(token)
+def api_credentials_extract_screenshot():
     raise HTTPException(status_code=410, detail="登录窗口显示在你的电脑上，本机助手不向网站提供登录截图。")

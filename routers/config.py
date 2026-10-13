@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Header
+from fastapi import APIRouter, Body
 from fastapi import HTTPException
 
-from auth_service import _check_auth
 from core import scheduler
 from core.config import DEFAULT_CONFIG, load_config, save_config
 
@@ -36,15 +35,13 @@ def _reject_unknown_config_keys(raw_cfg: dict) -> None:
 
 
 @router.get("/api/config")
-def api_config(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_config() -> dict:
     return load_config()
 
 
 @router.put("/api/config")
 @router.post("/api/config")
-def api_config_save(body: dict = Body(...), token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_config_save(body: dict = Body(...)) -> dict:
     raw_cfg = body.get("config") if isinstance(body, dict) and "config" in body and isinstance(body["config"], dict) else body
     if not isinstance(raw_cfg, dict):
         raise HTTPException(status_code=400, detail="配置体必须是 JSON 对象")

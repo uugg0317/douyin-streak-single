@@ -6,11 +6,10 @@ import urllib.request
 from urllib.parse import urlparse
 
 import app_common
-from fastapi import APIRouter, Header
+from fastapi import APIRouter
 from fastapi import HTTPException
 from fastapi import Response
 
-from auth_service import _check_auth
 from core import automation, ledger
 from core.runtime import load_harvest_last, load_runtime
 from models import (
@@ -25,8 +24,7 @@ router = APIRouter()
 
 
 @router.get("/api/contacts")
-def api_contacts(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_contacts() -> dict:
     rt = load_runtime()
     return {
         "contacts": rt.get("contacts", []),
@@ -37,23 +35,20 @@ def api_contacts(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
 
 
 @router.post("/api/contacts/fetch")
-def api_contacts_fetch(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_contacts_fetch() -> dict:
     _start_fetch_contacts()
     return {"ok": True, "started": True}
 
 
 @router.post("/api/sync")
-def api_sync(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_sync() -> dict:
     """与前端同步接口对齐"""
-    _check_auth(token)
     _start_fetch_contacts()
     return {"ok": True, "started": True}
 
 
 @router.get("/api/ledger")
-def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_ledger() -> dict:
     rt = load_runtime()
     entries = ledger.load_ledger()
     contacts = []
@@ -93,9 +88,8 @@ def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
 
 
 @router.post("/api/ledger/selection")
-def api_ledger_selection(body: SelectionBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_ledger_selection(body: SelectionBody) -> dict:
     """一键保存选中的好友列表。安全红线：拒绝空列表（会清空勾选致静默停发）。"""
-    _check_auth(token)
     if not body.selected_names:
         raise HTTPException(
             status_code=400,
@@ -116,9 +110,8 @@ def api_ledger_selection(body: SelectionBody, token: str = Header(default="", al
 
 
 @router.post("/api/ledger/delete")
-def api_ledger_delete(body: DeleteFriendBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_ledger_delete(body: DeleteFriendBody) -> dict:
     """删除单个好友台账条目"""
-    _check_auth(token)
     name = (body.display_name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="display_name 不能为空")
@@ -127,9 +120,8 @@ def api_ledger_delete(body: DeleteFriendBody, token: str = Header(default="", al
 
 
 @router.post("/api/ledger/batch-delete")
-def api_ledger_batch_delete(body: BatchDeleteBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_ledger_batch_delete(body: BatchDeleteBody) -> dict:
     """批量删除勾选的好友台账条目"""
-    _check_auth(token)
     names = [n.strip() for n in (body.display_names or []) if n.strip()]
     if not names:
         raise HTTPException(status_code=400, detail="display_names 不能为空")
@@ -164,10 +156,8 @@ _AVATAR_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 @router.get("/api/avatar")
 def api_avatar(
     url: str,
-    token: str = Header(default="", alias="X-Auth-Token"),
 ):
-    """代理抖音头像图片；<img> 会自动携带 HttpOnly 会话 Cookie。"""
-    _check_auth(token)
+    """代理白名单内的抖音头像图片，限制协议、跳转和响应大小。"""
     parsed = urlparse(url)
     # scheme 显式限定：file:// 可绕过白名单读本地文件
     if parsed.scheme not in ("http", "https"):
@@ -194,21 +184,18 @@ def api_avatar(
 
 
 @router.post("/api/ledger/harvest-creator")
-def api_harvest_creator(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_harvest_creator() -> dict:
     _start_harvest_creator()
     return {"ok": True, "started": True}
 
 
 @router.get("/api/ledger/stats")
-def api_ledger_stats(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_ledger_stats() -> dict:
     return ledger.stats()
 
 
 @router.put("/api/ledger")
-def api_ledger_save(body: LedgerBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
+def api_ledger_save(body: LedgerBody) -> dict:
     changes: list[dict] = []
     for e in body.entries or []:
         name = str(e.get("display_name", "")).strip()

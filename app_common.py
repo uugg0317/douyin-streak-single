@@ -32,7 +32,7 @@ elif getattr(sys, "frozen", False):
 else:
     ENV_PATH = BASE_DIR / ".env"
 # 版本号单一来源：发版只改这里；/api/health、/api/status 与前端界面均读取此值
-VERSION = "2.5"
+VERSION = "2.6"
 PID_PATH = DATA_DIR / "server.pid"  # 单实例锁文件：防旧实例 scheduler 残留再发消息
 # 允许用环境变量覆盖锁文件路径（测试/本地演练时避免抢占生产实例的锁）
 if os.environ.get("INSTANCE_LOCK_PATH", "").strip():

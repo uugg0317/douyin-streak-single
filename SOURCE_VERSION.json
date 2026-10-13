@@ -1,6 +1,8 @@
 {
-  "version": "2.5",
-  "variant": "single-account",
+  "version": "2.6",
+  "variant": "single-account-no-management-login",
   "source_commit": "0289d05f85376ddbce690f2b41f03a6a77488a2d",
-  "release_date": "2026-10-12"
+  "release_date": "2026-10-13",
+  "public_base_commit": "af689567687e0294206618045eecbffac06199c8",
+  "local_version_reference": "8f3664cca9a78b2ff9c3d0043aab04e019a8a100"
 }

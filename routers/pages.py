@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import Header
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app_common import STATIC_DIR, VERSION, logger
-from auth_service import (
-    LOGIN_GATE,
-    _check_auth,
-    _clean_expired_sessions,
-)
 from core import automation, scheduler
 from core.config import get_valid_state_path
 from core.runtime import load_runtime
@@ -23,7 +17,6 @@ router = APIRouter()
 def index() -> HTMLResponse:
     html_file = STATIC_DIR / "index.html"
     html_content = html_file.read_text(encoding="utf-8")
-    # 安全红线：绝不在返回的 HTML 中注入 AUTH_TOKEN
     return HTMLResponse(
         content=html_content,
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
@@ -42,24 +35,20 @@ def health() -> dict:
 
 
 @router.get("/api/browser/status")
-def api_browser_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_browser_status() -> dict:
     """查询浏览器常驻状态（是否存活、已运行多久）。"""
-    _check_auth(token)
     return automation.get_browser_status()
 
 
 @router.post("/api/browser/restart")
-def api_browser_restart(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+def api_browser_restart() -> dict:
     """关闭当前浏览器，下次发送时自动冷启动（用于浏览器卡死时手动恢复）。"""
-    _check_auth(token)
     ok = automation.restart_browser()
     return {"ok": ok}
 
 
 @router.get("/api/status")
-def api_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
-    _check_auth(token)
-    _clean_expired_sessions()  # 前端每 10 秒轮询本接口，借它定期回收过期令牌
+def api_status() -> dict:
     rt = load_runtime()
     valid_state = get_valid_state_path()
     return {
@@ -75,6 +64,5 @@ def api_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
         "consecutive_failures": int(rt.get("consecutive_failures", 0)),
         "auto_paused_until": rt.get("auto_paused_until", 0),
         "send_progress": rt.get("send_progress"),
-        "auth_required": bool(LOGIN_GATE),
         "version": VERSION,
     }

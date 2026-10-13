@@ -12,7 +12,6 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOKEN = "status-accuracy-synthetic-management-token"
 PREAMBLE = """
 import json
 import socket
@@ -40,7 +39,7 @@ def upload(raw=None):
     # The endpoint only awaits the upload read. An immediately available fake
     # avoids creating an event loop or even Windows asyncio's loopback self-pipe.
     pending = credentials.api_upload_state(
-        file=FakeUpload(), token='status-accuracy-synthetic-management-token')
+        file=FakeUpload())
     try:
         pending.send(None)
     except StopIteration as completed:
@@ -71,14 +70,14 @@ class StatusAccuracyTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "DATA_DIR": str(base / "data"), "ENV_FILE_PATH": str(base / "missing.env"),
-                "INSTANCE_LOCK_PATH": str(base / "server.pid"), "AUTH_TOKEN": TOKEN,
-                "LOGIN_GATE": "on", "HOST": "127.0.0.1", "URL_ACCESS_TOKEN": "",
-                "URL_PASSWORD_SALT": "", "URL_PASSWORD_HASH": "", "STATE_FILE_PATH": "",
+                "INSTANCE_LOCK_PATH": str(base / "server.pid"),
+                "HOST": "127.0.0.1", "STATE_FILE_PATH": "", "QR_PUBLIC_ORIGIN": "",
                 "SPARKKEEPER_BACKGROUND_TASKS": "0", "SPARKKEEPER_NO_ROOT_STATE_FALLBACK": "1",
                 "SESSION_WARN_EMAIL_ENABLED": "off", "PYTHONIOENCODING": "utf-8",
+                "PYTHONDONTWRITEBYTECODE": "1",
             })
             code = PREAMBLE + "\n" + textwrap.dedent(body) + "\nprint('isolated-status-pass')\n"
-            result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
+            result = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, env=env,
                                     capture_output=True, text=True, encoding="utf-8", timeout=25)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("isolated-status-pass", result.stdout)
@@ -95,7 +94,7 @@ class StatusAccuracyTests(unittest.TestCase):
         runtime.RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)
         runtime.RUNTIME_PATH.write_text(json.dumps({'session_status': 'ok'}), encoding='utf-8')
         with mock.patch.object(pages, 'get_valid_state_path', return_value=None):
-            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+            result = pages.api_status()
         assert result['session_status'] == 'ok'
         assert result['session_checked_at'] is None
         """)
@@ -105,7 +104,7 @@ class StatusAccuracyTests(unittest.TestCase):
         runtime.update_runtime(session_status='ok', session_checked_at=12345.25)
         with mock.patch.object(pages, 'get_valid_state_path', return_value=None), \\
              mock.patch.object(pages.scheduler, 'background_tasks_enabled', return_value=False):
-            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+            result = pages.api_status()
         assert result['session_checked_at'] == 12345.25
         assert result['background_tasks_enabled'] is False
         """)
