@@ -1,0 +1,12 @@
+# 抖音续火花 - 直接依赖用途清单（Python 3.10 及以上）
+# requirements.lock 是唯一安装依据；请运行 pip install -r requirements.lock。
+# 本文件仅说明代码直接使用的依赖，不用于产生可复现安装环境。
+# HTTP 接口与 ASGI 服务
+fastapi>=0.110.0
+uvicorn>=0.28.0
+# 浏览器操作与计划调度
+playwright>=1.42.0
+apscheduler>=3.10.4
+# 文件上传解析与请求模型校验
+python-multipart>=0.0.9
+pydantic>=2.6.0

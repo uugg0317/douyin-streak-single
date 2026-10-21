@@ -1,0 +1,52 @@
+# 2.8 可选本机 systemd 示例；运行账号与 /opt/douyin-streak 目录须自行准备。
+# 不配置公网、代理或端口转发；deploy.sh 不会安装本示例。
+[Unit]
+Description=Douyin Streak 2.8 - Local Console
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=douyin
+Group=douyin
+WorkingDirectory=/opt/douyin-streak
+Environment="PATH=/opt/douyin-streak/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="DATA_DIR=/opt/douyin-streak/data"
+Environment="HOST=127.0.0.1"
+Environment="PORT=8000"
+Environment="SPARKKEEPER_BACKGROUND_TASKS=0"
+Environment="ENV_FILE_PATH=/opt/douyin-streak/data/service.env"
+Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/douyin-streak/.cache/ms-playwright"
+# 以下浏览器参数只在任务显式启用后生效；此服务示例默认暂停后台任务。
+Environment="KEEP_BROWSER_ALWAYS=false"
+Environment="KEEP_PREWARMED_SECONDS=0"
+Environment="PREWARM_LEAD_MINUTES=2"
+ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1366x768x24" /opt/douyin-streak/venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+# ── 安全加固（非 root + 最小权限） ──
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 完整 Chromium 会在 $HOME/.config 下写崩溃上报数据库（Crashpad），
+# 不放开会在启动瞬间 SIGTRAP 崩溃（扫码提取即走完整 Chromium）。
+ReadWritePaths=/opt/douyin-streak/data /opt/douyin-streak/.cache/ms-playwright /opt/douyin-streak/.config
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Chromium JIT 需要可写可执行内存，不开启 MemoryDenyWriteExecute
+MemoryDenyWriteExecute=false
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
