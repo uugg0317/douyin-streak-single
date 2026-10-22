@@ -771,9 +771,17 @@
     }
 
     /* 刷新圆点 - 点击回弹 */
-    .refresh-dot:active {
-      transform: scale(0.55);
-    }
+    .terminal-body { scroll-behavior: auto; overflow-anchor: none; }
+    .log-refresh-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .log-refresh-feedback { color: #fff5df; font: 12px/1.5 var(--font-family); text-align: right; }
+    .refresh-dot { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border: 0; border-radius: 50%; padding: 0; cursor: pointer; background: transparent; transition: transform .2s ease; }
+    .refresh-dot::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: #f97316; box-shadow: 0 0 0 4px rgba(249,115,22,.1); }
+    .refresh-dot:active:not(:disabled) { transform: scale(.8); }
+    .refresh-dot:disabled { cursor: progress; }
+    .refresh-dot.is-refreshing::before { animation: log-refresh-pulse .8s ease-in-out infinite alternate; }
+    @keyframes log-refresh-pulse { from { opacity: .4; } to { opacity: 1; } }
+    @media (max-width: 600px) { .terminal-header { gap: 8px; flex-wrap: wrap; } .log-refresh-controls { margin-left: auto; } }
+    @media (prefers-reduced-motion: reduce) { .refresh-dot.is-refreshing::before { animation: none; } }
 
     /* ===== 全面透明玻璃质感覆盖 ===== */
     /* 所有 Element Plus 按钮变体 */
@@ -2063,9 +2071,12 @@
             <div class="terminal-box stagger-item" style="max-width: 100%; animation-delay: 0.1s;">
               <div class="terminal-header">
                 <span>douyin-cloud-streak.log</span>
-                <button type="button" class="refresh-dot" @click="fetchLogs" title="刷新日志" style="width: 12px; height: 12px; border-radius: 50%; background: #f97316; border: none; cursor: pointer; padding: 0; flex-shrink: 0; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);"></button>
+                <div class="log-refresh-controls">
+                  <span class="log-refresh-feedback" role="status" aria-live="polite">{{ logsRefreshing ? '正在获取最新日志…' : logsRefreshMessage }}</span>
+                  <button type="button" class="refresh-dot" :class="{'is-refreshing':logsRefreshing}" :disabled="logsRefreshing" @click="refreshLogs" :title="logsRefreshing ? '正在刷新日志' : '刷新并查看最新日志'" :aria-label="logsRefreshing ? '正在刷新日志' : '刷新并查看最新日志'" :aria-busy="logsRefreshing"></button>
+                </div>
               </div>
-              <pre class="terminal-body" id="terminal-view">{{ logsContent || '暂无日志输出，点击右上角“刷新日志”获取。' }}</pre>
+              <pre class="terminal-body" id="terminal-view" :aria-busy="logsRefreshing">{{ logsContent || '暂无日志输出，点击右上角“刷新日志”获取。' }}</pre>
             </div>
           </div>
           <!-- 5. 凭证状态页 -->
@@ -2361,6 +2372,8 @@
           iosBannerTimer = setTimeout(() => { iosBanner.visible = false; }, duration);
         };
         const logsContent = ref('');
+        const logsRefreshing = ref(false);
+        const logsRefreshMessage = ref('');
         const defaultQrLogin = {status:'idle',running:false,message:'点击开始扫码登录，在本页完成凭证更新。',error:'',imageUrl:'',deadline:0,hasJob:false,canRefresh:false,canRetrySync:false,canRetryImage:false,canRetryCleanup:false,canRetryStart:false,startUnconfirmed:false,saved:false,imageError:'',verificationImageError:'',verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,verificationBusy:false,interactionPending:false,gestureActive:false};
         const qrLogin = reactive({...defaultQrLogin});
         let qrLoginController = null;
@@ -2847,26 +2860,41 @@
 
         const fetchLogs = async () => {
           const ticket = beginManagedRead('logs');
+          logsRefreshing.value = true;
+          logsRefreshMessage.value = '';
           try {
             const res = await api.get('/api/logs', ticket.options);
             if (!ticket.current()) return false;
-            logsContent.value = res.data.logs || '';
-            nextTick(() => {
-              if (!ticket.current()) return;
-              const el = document.getElementById('terminal-view');
-              if (el) el.scrollTop = el.scrollHeight;
-            });
+            const nextLogs = res.data.logs || '';
+            const changed = logsContent.value !== nextLogs;
+            logsContent.value = nextLogs;
+            // Wait for Vue to mount/update the scroll container, including when
+            // entering this tab. Even unchanged text must reveal the latest row.
+            await nextTick();
+            if (!ticket.current()) return false;
+            const el = document.getElementById('terminal-view');
+            if (el) el.scrollTop = el.scrollHeight;
+            logsRefreshMessage.value = !nextLogs ? '暂无日志输出' : changed ? '已更新，已定位到最新日志' : '暂无新日志，已定位到末尾';
             return true;
           } catch (e) {
             if (!ticket.current()) return false;
+            logsRefreshMessage.value = '刷新失败，保留原日志，请重试';
             console.error('Failed to fetch logs', e);
             return false;
-          } finally { finishManagedRead(ticket); }
+          } finally {
+            if (ticket.current()) logsRefreshing.value = false;
+            finishManagedRead(ticket);
+          }
         };
-
+        const refreshLogs = () => {
+          if (logsRefreshing.value) return;
+          return fetchLogs();
+        };
         const clearLogs = () => {
           invalidateManagedRead('logs');
           logsContent.value = '';
+          logsRefreshing.value = false;
+          logsRefreshMessage.value = '';
         };
 
         // ── 邮箱告警配置 ──────────────────────────────────────
@@ -2884,7 +2912,7 @@
           contacts.value = []; savedSelection.value = []; savedLedgerContacts.value = [];
           contactsCapture.value = null;
           ledgerVersion.value = null; ledgerReady.value = false; selectionFeedback.value = '';
-          logsContent.value = ''; messagesText.value = '';
+          logsContent.value = ''; logsRefreshing.value = false; logsRefreshMessage.value = ''; messagesText.value = '';
           Object.assign(lastRunInfo, {time:'', summary:'', success:false});
           for (const key of Object.keys(config)) delete config[key];
           Object.assign(config, defaultConfig);
@@ -2917,6 +2945,7 @@
         };
         const openTab = (name) => {
           tab.value = name;
+          if (name === 'logs') refreshLogs();
           if (name === 'email') { playEmailEntrance(); }
           else { emailSubView.value = ''; resetEmailBar(); }
         };
@@ -3654,6 +3683,9 @@
           showHistoricalContacts,
           historicalContactCount,
           logsContent,
+          logsRefreshing,
+          logsRefreshMessage,
+          refreshLogs,
           qrLogin,
           qrSteps,
           qrVisualStep,
