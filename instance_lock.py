@@ -8,29 +8,10 @@ import threading
 
 from app_common import PID_PATH, logger
 from core.config import atomic_write_text
+from core.file_lock import lock as _lock, unlock as _unlock
 
 _guard = threading.RLock()
 _held: dict[str, tuple[object, Path]] = {}
-
-
-def _lock(handle) -> None:
-    handle.seek(0)
-    if os.name == 'nt':
-        import msvcrt
-        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-    else:
-        import fcntl
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-
-def _unlock(handle) -> None:
-    handle.seek(0)
-    if os.name == 'nt':
-        import msvcrt
-        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _remove_own_pid(path: Path) -> None:

@@ -77,6 +77,24 @@ python tools/consolidate_contacts.py --data-dir data
 
 确认预览后才使用 `--apply`。工具会检查运行占用并先备份原台账，保留可恢复的合并报告；有运行任务或待派发队列时会拒绝写入。
 
+### 私有数据备份与恢复演练
+
+先停止服务，再使用项目虚拟环境中的 Python。下面的 `backups` 父目录需事先创建；输出文件必须尚不存在，并位于数据目录之外：
+
+```sh
+python tools/data_backup.py backup --data-dir data --output backups/private-data.zip
+python tools/data_backup.py verify --archive backups/private-data.zip
+python tools/data_backup.py restore --archive backups/private-data.zip --target data-restored
+```
+
+工具只收集数据目录中的 `config.json`、`ledger.json`、`ledger.json.bak`、`runtime.json`、`state.json` 及恢复保护标记，逐文件记录字节数和 SHA-256；不读取 `.env`、日志、截图或目录外的登录态。使用 `STATE_FILE_PATH` 的外置凭证需要另行保管。**这是包含登录态及好友记录的私人备份，未加密，不应上传 GitHub 或随源码分享。** SHA-256 用于发现损坏和摘要不一致，不是备份来源的数字签名。
+
+备份与服务使用同一把操作系统锁。若部署使用了自定义 `INSTANCE_LOCK_PATH`，必须额外提供 `--lock-file`，值是该 PID 路径后追加 `.lock` 的实际锁文件，例如 `--lock-file D:/private/server.pid.lock`。工具不会读取 `.env` 猜测这个路径。
+
+恢复只接受**尚不存在的新目录**，不覆盖原数据，也不接受已存在的空目录。任何备份都可能遗漏备份生成后的发送，因此恢复后都会启用 `ledger-recovery-required.json` 和 `restore-paused.json`：后台任务保持暂停，继承的后台开启环境变量也不会绕过；手动、强制发送同样受发送历史恢复保护。已有损坏标记按原字节保留，勾选、发送历史及待核对意图一并保留。工具不提供自动解除保护操作，请先核对最新发送历史，不要通过删标记或强制发送绕过核对。
+
+工具在临时合成数据上完成过恢复演练；这不能证明任何一份个人备份已经实际演练成功。文件大小、白名单、摘要或内容结构不符时拒绝恢复。中途磁盘写入失败或进程退出可能留下新建的部分恢复目录，保护标记会先于账号数据落盘；该目录不能当作完整恢复结果，请保留保护并选择另一个新目录重试。源数据和旧备份不会被覆盖。
+
 ## 开发与验证
 
 使用锁定依赖，避免用本机账号验证自动发送修改。测试应使用临时数据目录、本地模拟页面和虚构凭据。

@@ -15,9 +15,10 @@ from apscheduler.executors.pool import ThreadPoolExecutor as SchedulerThreadPool
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
-from .config import load_config
+from .config import DATA_DIR, load_config
 from .harvester import creator_map
 from .send_day import business_now
+from .restore_guard import restore_paused
 
 logger = logging.getLogger("douyin-cloud-streak")
 TZ = "Asia/Shanghai"
@@ -195,7 +196,9 @@ def _session_check_job() -> None:
 
 
 def background_tasks_enabled() -> bool:
-    """Process-only switch for starting a local console without account jobs."""
+    """Restored data stays paused even when an old environment enables jobs."""
+    if restore_paused(DATA_DIR):
+        return False
     return os.environ.get("SPARKKEEPER_BACKGROUND_TASKS", "0").strip().lower() in {"1", "true", "on", "yes"}
 
 
