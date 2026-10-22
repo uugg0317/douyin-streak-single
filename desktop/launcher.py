@@ -15,12 +15,24 @@ Chromium 的相对路径失效，且每次启动都要解压 300MB+。
 from __future__ import annotations
 
 import json
+import importlib
 import os
+from pathlib import Path
 import socket
 import sys
 import threading
 import time
 import webbrowser
+
+# Source entry can be launched from an arbitrary working directory.
+if not getattr(sys, "frozen", False):
+    project_root = str(Path(__file__).resolve().parents[1])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+from env_bootstrap import load_environment, resolve_env_path
+from password_setup import initialize_env, PasswordSetupError, resolve_setup_path
+import startup_check
 
 APP_NAME = "抖音续火花"
 HOST = "127.0.0.1"
@@ -63,17 +75,83 @@ def anchor_cwd() -> None:
 
 
 def load_desktop_env() -> None:
-    """在选择端口前加载 exe 同级 .env；应用稍后仍会用同一规则再次幂等加载。"""
-    env_path = os.environ.get("ENV_FILE_PATH") or os.path.join(BASE_DIR, ".env")
+    """设置完成后加载同一文件；保留非认证配置的既有环境优先规则。"""
+    for key in ("AUTH_TOKEN", "URL_ACCESS_TOKEN", "URL_PASSWORD_SALT", "URL_PASSWORD_HASH"):
+        os.environ.pop(key, None)
+    load_environment(resolve_env_path())
+
+
+class DesktopSetupCancelled(PasswordSetupError):
+    """用户取消设置，禁止继续启动未配置的服务。"""
+
+
+def read_desktop_password(prompt: str) -> str:
+    """仅在缺少密码时创建窗口，任何环境都不回退到明文输入。"""
+    window = None
     try:
-        with open(env_path, encoding="utf-8") as stream:
-            for raw in stream:
-                raw = raw.strip()
-                if raw and not raw.startswith("#") and "=" in raw:
-                    key, value = raw.split("=", 1)
-                    os.environ.setdefault(key.strip(), value.strip())
-    except OSError:
-        pass
+        import tkinter as tk
+        from tkinter import simpledialog
+        window = tk.Tk()
+        window.withdraw()
+        value = simpledialog.askstring(APP_NAME + " · 首次密码设置", prompt,
+                                       show="*", parent=window)
+        if value is None:
+            raise DesktopSetupCancelled("已取消密码设置，服务尚未启动。")
+        return value
+    except DesktopSetupCancelled:
+        raise
+    except Exception as error:
+        # GUI exceptions may include arbitrary input; only a fixed explanation escapes.
+        raise PasswordSetupError("无法显示隐藏密码输入窗口，请安装完整 Python（含 Tk）或重新安装完整桌面程序。") from error
+    finally:
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:
+                pass
+
+
+def show_startup_error(message: str) -> None:
+    """无控制台时仍可见；Tk 缺失的 Windows 使用系统消息框。"""
+    print("[启动未完成] " + message, file=sys.stderr)
+    window = None
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        window = tk.Tk()
+        window.withdraw()
+        messagebox.showerror(APP_NAME + " · 启动未完成", message, parent=window)
+        return
+    except Exception:
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(None, message, APP_NAME + " · 启动未完成", 0x10)
+            except Exception:
+                pass
+    finally:
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:
+                pass
+
+
+def prepare_desktop_environment() -> None:
+    """只在组件就绪后补齐认证，任何失败都发生在应用服务导入之前。"""
+    destination = resolve_setup_path()
+    os.environ["ENV_FILE_PATH"] = str(destination)
+    setup_browsers_path()
+    problems = startup_check.check()
+    for module, label in (("pystray", "系统托盘"), ("PIL.Image", "Pillow"), ("psutil", "进程管理组件")):
+        try:
+            importlib.import_module(module)
+        except Exception as error:
+            problems.append(f"{label} 无法加载（{type(error).__name__}）")
+    if problems:
+        raise PasswordSetupError("运行组件未就绪：\n" + "\n".join(problems) + "\n请重新安装完整桌面程序；源码运行请先安装项目和桌面依赖。")
+    initialize_env(destination, password_reader=read_desktop_password)
+    load_desktop_env()
 
 
 def setup_browsers_path() -> str | None:
@@ -367,8 +445,15 @@ class TrayApp:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> int:
-    anchor_cwd()
-    load_desktop_env()
+    try:
+        # Resolve relative overrides before changing cwd; the service must read this file too.
+        os.environ["ENV_FILE_PATH"] = str(resolve_setup_path())
+        anchor_cwd()
+        prepare_desktop_environment()
+    except (PasswordSetupError, OSError, UnicodeError) as error:
+        message = str(error) if isinstance(error, PasswordSetupError) else "无法读取本机配置，原文件未修改。"
+        show_startup_error(message)
+        return 2
 
     browsers = setup_browsers_path()
     print(f"[信息] 程序目录：{BASE_DIR}")

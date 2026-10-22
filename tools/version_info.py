@@ -14,4 +14,4 @@ def read_version(root=None):
 
 
 if __name__ == '__main__':
-    print('[版本] 抖音续火花 ' + read_version() + '（有密码门）')
+    print('[版本] 抖音续火花 ' + read_version())

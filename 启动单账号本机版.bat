@@ -1,14 +1,13 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
+if defined ENV_FILE_PATH for %%I in ("%ENV_FILE_PATH%") do set "ENV_FILE_PATH=%%~fI"
 cd /d "%~dp0"
 set "PYTHONUTF8=1"
-set "ENV_FILE_PATH=%~dp0.env"
+if not defined ENV_FILE_PATH set "ENV_FILE_PATH=%~dp0.env"
 set "HOST=127.0.0.1"
 set "PORT=8000"
 set "SPARKKEEPER_BACKGROUND_TASKS=0"
-set "LOGIN_GATE=on"
-set "PASSWORD_PUBLIC_LOGIN=on"
 rem This local entry point uses its own .env rather than stale inherited secrets.
 set "AUTH_TOKEN="
 set "URL_ACCESS_TOKEN="

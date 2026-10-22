@@ -11,10 +11,19 @@ import warnings
 from pathlib import Path
 from typing import Callable
 from auth_config import hash_password, password_hash_kind
+from env_bootstrap import resolve_env_path
 
 
 class PasswordSetupError(ValueError):
     """未能安全地初始化密码配置。"""
+
+
+def resolve_setup_path() -> Path:
+    """Use the service path without following a user-selected config symlink for writing."""
+    override = os.environ.get("ENV_FILE_PATH", "").strip()
+    if override and Path(override).expanduser().is_symlink():
+        raise PasswordSetupError(".env 必须是普通配置文件，不会修改链接或目录。")
+    return resolve_env_path()
 
 
 def _read_password(prompt: str) -> str:
@@ -151,9 +160,8 @@ def initialize_env(
 
 
 def main() -> int:
-    destination = Path(__file__).resolve().parent / ".env"
     try:
-        initialize_env(destination)
+        initialize_env(resolve_setup_path())
     except (PasswordSetupError, EOFError) as exc:
         print(f"[错误] {exc}", file=sys.stderr)
         return 1

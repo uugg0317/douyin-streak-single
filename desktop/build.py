@@ -59,6 +59,11 @@ HIDDEN_IMPORTS = [
     "apscheduler.triggers.cron",
     "apscheduler.executors.pool",
     "pystray._win32",
+    "tkinter",
+    "tkinter.simpledialog",
+    "tkinter.messagebox",
+    "startup_check",
+    "password_setup",
 ]
 
 
@@ -86,6 +91,11 @@ def check_python() -> None:
     if (major, minor) < (3, 10):
         print(f"\n[错误] 需要 Python 3.10+，当前是 {major}.{minor}。")
         sys.exit(1)
+    try:
+        import tkinter
+        tkinter.Tcl().eval("info patchlevel")
+    except Exception as error:
+        raise RuntimeError("构建需要完整 Python 的 Tcl/Tk 组件，以提供首次启动的隐藏密码输入窗口。") from error
     if (major, minor) >= (3, 13):
         print("  [提示] 3.13 上 PyInstaller 支持较新，若打包失败请改用 3.11/3.12。")
 
