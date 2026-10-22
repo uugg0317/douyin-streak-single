@@ -118,6 +118,12 @@ body.reference-theme #app .notice-pop-leave-to {
   opacity: 0;
   transform: translateY(-4px) scale(.986);
 }
+.run-result-details { margin-top: 12px; color: var(--text-main); font-size: 14px; line-height: 1.6; }
+.result-detail-reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .36s ease, opacity .24s ease; }
+.result-detail-reveal.is-open { grid-template-rows: 1fr; opacity: 1; }
+.result-detail-reveal > div { min-height: 0; overflow: hidden; }
+.result-detail-reveal ul { margin: 10px 0 0; padding-left: 22px; overflow-wrap: anywhere; }
+.result-detail-reveal li + li { margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) {
   body.reference-theme #app .status-motion-shell { transition: none !important; transform: none !important; }
 }

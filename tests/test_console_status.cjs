@@ -148,5 +148,25 @@ async function test(name, fn) {await fn();tests.push(name);}
  await test('T07 当日待核对跳过只能提示核对且不会请求自动补发或被新状态刷新成健康',async()=>{
   const h=mount();h.setResponse({last_run:{at:'2026-10-15T10:00:00+08:00',dry_run:false,ok:[],failed:[],deferred:[],skipped:[{entry_id:'t07-pending-review',name:'合成待核对',code:'unconfirmed_today',retryable:false}],delivery_unconfirmed:false}});await h.c.loadStatus();assert.match(h.c.lastRunInfo.summary,/待核对\s*1/);assert.match(h.c.lastRunInfo.summary,/失败\s*0/);assert(!h.c.lastRunInfo.summary.includes('今天已发'));assert.equal(h.c.lastRunInfo.success,false);assert.equal(h.posted.length,0);h.cleanup();
  });
+
+ await test('Stale credentials warn without claiming expiry and fresh checks recover',async()=>{
+  const h=mount();h.setResponse({state_file_exists:true,session_status:'ok',session_checked_at:1700000000,session_check_stale:true,session_check_reason:'stale'});await h.c.loadStatus();
+  assert.equal(h.c.credentialDisplay.value.tone,'warn');assert.match(h.c.credentialDisplay.value.label,/需重新检查/);assert.match(h.c.sessionCheckedLabel.value,/24 小时/);assert.equal(h.c.status.session_status,'ok');
+  h.setResponse({state_file_exists:true,session_status:'ok',session_checked_at:1700000000,session_check_stale:false,session_check_reason:'fresh'});await h.c.loadStatus();assert.equal(h.c.credentialDisplay.value.tone,'ok');h.cleanup();
+ });
+ await test('A future check timestamp cannot appear verified green',async()=>{
+  const h=mount();h.setResponse({state_file_exists:true,session_status:'ok',session_checked_at:Date.now()/1000+9999,session_check_reason:'future'});await h.c.loadStatus();assert.equal(h.c.credentialDisplay.value.tone,'warn');assert.match(h.c.sessionCheckedLabel.value,/时间异常/);h.cleanup();
+ });
+ await test('Recovery protection is visible and blocks a direct manual send',async()=>{
+  const h=mount();h.setResponse({ledger_recovery_required:true,background_tasks_enabled:true});await h.c.loadStatus();assert.match(h.c.taskDisplay.value.label,/恢复保护/);assert.equal(await h.c.runStreak(false),false);assert.equal(h.posted.length,0);h.cleanup();
+ });
+ await test('Task phases use fixed readable labels and ignore arbitrary server text',async()=>{
+  const h=mount();h.setResponse({running:true,task_phase:'confirming'});await h.c.loadStatus();assert.match(h.c.taskDisplay.value.detail,/确认发送/);h.setResponse({running:true,task_phase:'private-token-example'});await h.c.loadStatus();assert(!h.c.taskDisplay.value.detail.includes('private-token'));h.cleanup();
+ });
+ await test('Expandable run details explain skips and dry-run limits without raw errors',async()=>{
+  const h=mount();h.setResponse({last_run:{dry_run:true,skipped:[{name:'合成甲',code:'already_sent_today'},{name:'合成乙',code:'unconfirmed_today'}],failed:[{name:'合成丙',reason:'private-secret-that-must-not-display'}],delivery_checks:[{name:'合成甲',evidence:'observed',reason:'historical_markers_observed'}]}});await h.c.loadStatus();
+  assert.equal(h.c.lastRunDetails.value.length,4);const text=JSON.stringify(h.c.lastRunDetails.value);assert.match(text,/今天已发送/);assert.match(text,/不会自动重发/);assert.match(text,/未发送.*不能据此确认真实投递/);assert(!text.includes('private-secret'));assert.equal(h.c.resultDetailsOpen.value,false);
+  assert(html.includes('aria-controls="run-result-list"'));h.cleanup();
+ });
  console.log(JSON.stringify({passed:tests.length,tests},null,2));
 })().catch(error=>{console.error(error);process.exitCode=1;});

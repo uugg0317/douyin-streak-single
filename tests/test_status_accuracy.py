@@ -88,6 +88,61 @@ class StatusAccuracyTests(unittest.TestCase):
         assert state['session_checked_at'] is None
         """)
 
+    def test_stale_confirmation_is_only_a_view_and_does_not_mark_expired(self):
+        self.isolated("""
+        runtime.update_runtime(session_status='ok', session_checked_at=100000.0)
+        with mock.patch.object(pages.time, 'time', return_value=200000.0), \\
+             mock.patch.object(pages, 'get_valid_state_path', return_value=None):
+            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+        assert result['session_status'] == 'ok'
+        assert result['session_check_stale'] is True
+        assert result['session_check_age_seconds'] == 100000.0
+        assert result['session_check_reason'] == 'stale'
+        assert runtime.load_runtime()['session_status'] == 'ok'
+        assert runtime.load_runtime()['session_checked_at'] == 100000.0
+        """)
+
+    def test_invalid_confirmation_time_is_serializable_and_not_expired(self):
+        self.isolated("""
+        runtime.update_runtime(session_status='ok', session_checked_at=float('nan'))
+        with mock.patch.object(pages, 'get_valid_state_path', return_value=None):
+            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+        assert result['session_status'] == 'ok'
+        assert result['session_check_reason'] == 'invalid'
+        assert result['session_checked_at'] is None
+        assert result['session_check_age_seconds'] is None
+        json.dumps(result, allow_nan=False)
+        """)
+
+    def test_phase_start_stop_and_inactive_filter(self):
+        self.isolated("""
+        assert runtime.load_runtime()['task_phase'] is None
+        runtime.set_running(True)
+        assert runtime.load_runtime()['task_phase'] == 'starting'
+        runtime.update_runtime(task_phase='confirming')
+        with mock.patch.object(pages, 'get_valid_state_path', return_value=None):
+            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+            assert result['task_phase'] == 'confirming'
+            runtime.set_running(False)
+            assert runtime.load_runtime()['task_phase'] is None
+            runtime.update_runtime(task_phase='locating')
+            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+        assert result['task_phase'] is None
+        """)
+
+    def test_status_returns_recovery_marker_created_during_summary_read(self):
+        self.isolated("""
+        from core import ledger
+        ledger.LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ledger.LEDGER_PATH.write_text('{broken', encoding='utf-8')
+        ledger.LEDGER_BAK_PATH.write_text('[]', encoding='utf-8')
+        assert not ledger.recovery_required()
+        with mock.patch.object(pages, 'get_valid_state_path', return_value=None):
+            result = pages.api_status(token='status-accuracy-synthetic-management-token')
+        assert result['ledger_recovery_required'] is True
+        assert ledger.recovery_required()
+        """)
+
     def test_legacy_runtime_without_check_time_stays_unchecked(self):
         self.isolated("""
         runtime.RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)

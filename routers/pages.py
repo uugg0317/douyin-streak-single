@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from fastapi import Header
 from fastapi.responses import FileResponse, HTMLResponse
 
@@ -13,6 +14,7 @@ from auth_service import (
 )
 from core import automation, ledger, scheduler
 from core.send_day import business_now, timestamp_date
+from core.status_view import session_check_view, task_phase_view
 from core.config import get_valid_state_path
 from fastapi import APIRouter
 from tasks_service import retry_plan_view
@@ -94,15 +96,21 @@ def api_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
     rt = retry_plan_view()
     valid_state = get_valid_state_path()
     stopping = bool(rt.get("stopping") or automation.send_is_stopping())
+    running = bool(rt.get("running", False) or stopping)
+    today_summary = _today_summary()
+    # Reading the ledger can create the recovery marker; inspect it afterwards.
+    recovery_required = ledger.recovery_required()
     return {
         "state_file_exists": valid_state is not None,
         "session_status": rt.get("session_status", "unknown"),
-        "session_checked_at": rt.get("session_checked_at"),
-        "running": bool(rt.get("running", False) or stopping),
+        **session_check_view(rt.get("session_checked_at"), now=time.time()),
+        "running": running,
+        "task_phase": task_phase_view(rt.get("task_phase"), active=running),
+        "ledger_recovery_required": recovery_required,
         "stopping": stopping,
         "stop_reason": rt.get("stop_reason") if stopping else None,
         "last_run": rt.get("last_run"),
-        "today_summary": _today_summary(),
+        "today_summary": today_summary,
         "pending_retry_entries": rt.get("pending_retry_entries") or [],
         "pending_retry_count": len(rt.get("pending_retry_entries") or []),
         "retry_status": rt.get("retry_status", "none"),

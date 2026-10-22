@@ -90,6 +90,62 @@ class SendBrowserLifecycleTests(unittest.TestCase):
                                     cwd=ROOT, env=env, text=True, encoding='utf-8', capture_output=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
+    def test_phase_sequence_and_cleanup_after_real_isolated_send_loop(self):
+        self.isolated('''
+        targets('Alpha', 'Beta')
+        result=A._run_send_impl(dry_run=True)
+        phases=[call.kwargs['task_phase'] for call in A.update_runtime.call_args_list if 'task_phase' in call.kwargs]
+        assert phases[0]=='starting' and phases[-1] is None, phases
+        assert 'opening_browser' in phases and 'loading_contacts' in phases and 'waiting_gap' in phases, phases
+        assert phases.count('locating')==2 and phases[-2]=='finishing', phases
+        assert result['ok']==['Alpha','Beta']
+        A._close_prewarmed()
+        ''')
+
+    def test_phase_clears_on_early_return_and_preflight_exception(self):
+        self.isolated('''
+        targets()
+        A._run_send_impl(dry_run=True)
+        assert A.update_runtime.call_args.kwargs=={'task_phase':None}
+        A.load_config.side_effect=RuntimeError('synthetic preflight failure')
+        try:A._run_send_impl(dry_run=True)
+        except RuntimeError:pass
+        else:raise AssertionError('business error unexpectedly swallowed')
+        assert A.update_runtime.call_args.kwargs=={'task_phase':None}
+        ''')
+
+    def test_phase_updates_never_feed_the_watchdog_or_mask_business_failure(self):
+        self.isolated('''
+        from core.run_progress import run_lock
+        run_lock.acquire()
+        before=run_lock.snapshot()
+        A.progress=Mock()
+        try:
+            A._set_task_phase('locating');A._set_task_phase('confirming');A._set_task_phase(None)
+            assert run_lock.snapshot()==before
+            A.progress.assert_not_called()
+        finally:run_lock.release()
+        A.update_runtime.side_effect=OSError('synthetic status disk failure')
+        A.load_config.side_effect=RuntimeError('synthetic business failure')
+        try:A._run_send_impl(dry_run=True)
+        except RuntimeError as error:assert 'business failure' in str(error)
+        else:raise AssertionError('presentation write masked business outcome')
+        ''')
+
+    def test_confirmation_phase_only_follows_submit_and_scope_is_disposed(self):
+        self.isolated('''
+        page=Mock();box=delivery_scope(page)
+        A.detect_rate_limit=Mock(return_value=None)
+        A._delivery_snapshot=Mock(return_value={'messages':[],'failures':[]})
+        A._type_and_send=Mock(return_value=True)
+        def confirm(*args,**kwargs):
+            assert A.update_runtime.call_args.kwargs=={'task_phase':'confirming'}
+            return True,'accepted'
+        A._confirm_delivery=Mock(side_effect=confirm)
+        assert A._send_message(page,'offline-message',False,target_name='Alpha')==(True,'accepted')
+        A._bind_delivery_scope.return_value.dispose.assert_called_once_with()
+        ''')
+
     def test_cold_cache_keeps_real_contextmanager_alive_until_explicit_close(self):
         self.isolated('''
         targets('Alpha');result=A._run_send_impl(dry_run=True)

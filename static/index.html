@@ -2411,7 +2411,7 @@
                   <p class="card-desc">手动启动一次自动化流程，或在下方查看最近执行记录与结果。</p>
                 </div>
                 <div class="mobile-action-grid" style="display: flex; gap: 8px;">
-                  <el-button class="btn-action-fire" :disabled="status.running || status.stopping || status.retry_dispatching || ledgerWriteBusy || savingLedger || selectionDirty || !ledgerReady" @click="runStreak(false)">
+                  <el-button class="btn-action-fire" :disabled="status.running || status.stopping || status.retry_dispatching || status.ledger_recovery_required || ledgerWriteBusy || savingLedger || selectionDirty || !ledgerReady" @click="runStreak(false)">
                     {{ status.stopping ? '正在停止／结果待核对' : status.running ? '任务执行中...' : status.retry_dispatching ? '正在启动补发' : '立即续火花' }}
                   </el-button>
                   <el-button v-if="status.retry_status === 'manual' && status.pending_retry_count > 0" :disabled="!canContinuePending" :loading="pendingRetryBusy" @click="continuePending">继续未完成（{{ status.pending_retry_count }}）</el-button>
@@ -2438,6 +2438,12 @@
                   <div style="font-weight: 600; font-size: 13px;" :style="{ color: lastRunInfo.success ? '#16a34a' : '#d97706' }">
                     {{ lastRunInfo.summary || '尚无执行记录' }}
                   </div>
+                </div>
+              </div>
+              <div v-if="lastRunDetails.length" class="run-result-details">
+                <el-button size="small" :aria-expanded="resultDetailsOpen" aria-controls="run-result-list" @click="resultDetailsOpen = !resultDetailsOpen">{{ resultDetailsOpen ? '收起' : '查看' }}结果与演练详情（{{ lastRunDetails.length }}）</el-button>
+                <div class="result-detail-reveal" :class="{ 'is-open': resultDetailsOpen }" :aria-hidden="!resultDetailsOpen" :inert="!resultDetailsOpen || undefined">
+                  <div><ul id="run-result-list" class="status-detail"><li v-for="(item, index) in lastRunDetails" :key="index"><strong>{{ item.name }}</strong>：{{ item.detail }}</li></ul></div>
                 </div>
               </div>
             </div>
@@ -3031,6 +3037,11 @@
           state_file_exists: false,
           session_status: 'unknown',
           session_checked_at: null,
+          session_check_stale: false,
+          session_check_age_seconds: null,
+          session_check_reason: null,
+          ledger_recovery_required: false,
+          task_phase: null,
           background_tasks_enabled: null,
           next_run: null,
           status_connected: false,
@@ -3109,6 +3120,36 @@
           summary: '',
           success: false
         });
+        const lastRunDetails = ref([]);
+        const resultDetailsOpen = ref(false);
+        function describeLastRun(run) {
+          if (!run || typeof run !== 'object') return [];
+          const details = [], reasons = {
+            already_sent_today:'今天已发送，已跳过', unconfirmed_today:'发送结果待核对，不会自动重发',
+            delivery_unconfirmed:'发送结果待核对，不会自动重发', delivery_rejected:'页面明确拒绝发送',
+            ledger_recovery_required:'台账恢复保护：发送历史可能不完整，请先核对数据',
+            identity_ambiguous:'会话存在歧义，未提交消息', not_observed:'本轮未观察到该会话',
+            related_send_unconfirmed:'关联历史记录有待核对消息', related_sent_today:'关联历史记录今天已发送',
+            contact_not_found:'未能定位到目标会话', browser_session_closed:'浏览器会话中断',
+          };
+          for (const [field, fallback] of [['failed','未完成，具体情况请查看日志'],['skipped','本轮跳过'],['deferred','本轮尚未处理']]) {
+            for (const row of Array.isArray(run[field]) ? run[field] : []) {
+              const name = typeof row === 'string' ? row : row?.name || row?.display_name;
+              if (typeof name !== 'string' || !name.trim()) continue;
+              details.push({name:name === '_system' ? '本轮任务' : name.slice(0,120), detail:reasons[row?.code] || fallback});
+            }
+          }
+          const checks = {historical_markers_observed:'已观察到历史己方消息标记；本次演练未发送，不能据此确认真实投递',
+            no_observed_outgoing_markers:'尚未观察到可用的己方消息标记，空会话也可能出现此情况',
+            snapshot_unavailable:'当前页面确认依据尚不可读取', snapshot_failed:'页面确认依据读取未完成',
+            visible_failure_signal:'观察到历史失败提示，请先查看会话', pending_message_visible:'观察到尚未完成的消息状态',
+            not_reached:'尚未执行到发送判据检查'};
+          if (run.dry_run === true) for (const row of Array.isArray(run.delivery_checks) ? run.delivery_checks : []) {
+            if (!row || typeof row.name !== 'string') continue;
+            details.push({name:row.name.slice(0,120), detail:'演练诊断：'+(checks[row.reason] || '确认依据尚未验证')});
+          }
+          return details;
+        }
 
         function summarizeLastRun(run) {
           const empty = {time:'',summary:'',success:false};
@@ -3291,10 +3332,11 @@
         const sessionCheckedLabel = computed(() => {
           if (!status.status_connected) return '等待服务器同步状态';
           if (!status.state_file_exists) return '请在凭证页扫码登录';
+          if (['invalid','future'].includes(status.session_check_reason)) return '检查时间异常，请重新检查登录状态';
           const seconds = Number(status.session_checked_at);
           if (!(seconds > 0) || !Number.isFinite(seconds)) return '尚无检查记录；保存文件不代表登录有效';
           const date = new Date(seconds * 1000);
-          return Number.isFinite(date.getTime()) ? '上次确认：' + date.toLocaleString('zh-CN', {hour12:false}) : '尚无有效检查时间';
+          return Number.isFinite(date.getTime()) ? '上次确认：' + date.toLocaleString('zh-CN', {hour12:false}) + (status.session_check_stale ? ' · 已超过 24 小时，需重新检查' : '') : '尚无有效检查时间';
         });
         const credentialDisplay = computed(() => {
           const view = (label, tone) => ({label, tone, color: tone === 'ok' ? 'var(--status-valid)' : tone === 'bad' ? 'var(--status-invalid)' : 'var(--status-pending)'});
@@ -3302,6 +3344,8 @@
           if (!status.state_file_exists) return view('未保存凭证', 'bad');
           if (status.session_status === 'expired') return view('已失效，需扫码', 'bad');
           if (['failed', 'partial'].includes(status.session_status)) return view('登录状态待检查', 'warn');
+          if (status.session_status === 'ok' && ['invalid','future'].includes(status.session_check_reason)) return view('检查时间异常，需重新检查', 'warn');
+          if (status.session_status === 'ok' && status.session_check_stale) return view('上次有效，需重新检查', 'warn');
           if (status.session_status === 'ok' && Number(status.session_checked_at) > 0 && Number.isFinite(Number(status.session_checked_at))) return view('上次检查有效', 'ok');
           return view('已保存，待检查', 'warn');
         });
@@ -3310,7 +3354,11 @@
           if (status.stopping) return view('正在停止／结果待核对', status.status_connected ? '后台任务尚未结束，勿重复启动；结束后先核对发送结果' : '上次状态为停止中，尚未确认后台任务结束；连接恢复前勿重复启动', 'var(--status-invalid)');
           if (!status.running && status.retry_dispatching) return view('正在启动补发', status.status_connected ? '后台已开始启动补发，请等待任务更新，勿重复启动' : '补发启动结果尚未确认，连接恢复前勿重复启动', status.status_connected ? 'var(--status-valid)' : 'var(--status-pending)');
           if (!status.status_connected) return view('等待状态同步', '连接恢复后会自动更新');
-          if (status.running) return view('正在执行', '请等待当前任务完成', 'var(--status-valid)');
+          if (status.ledger_recovery_required) return view('恢复保护，等待核对', '发送历史可能不完整，已阻止发送；请先核对并恢复台账', 'var(--status-invalid)');
+          if (status.running) {
+            const phases = {starting:'正在准备任务', opening_browser:'正在准备自动化浏览器', loading_contacts:'正在读取会话列表', locating:'正在定位目标好友', confirming:'正在等待页面确认发送结果', waiting_gap:'正在等待好友之间的发送间隔', finishing:'正在保存结果并收尾'};
+            return view('正在执行', phases[status.task_phase] || '请等待当前任务完成', 'var(--status-valid)');
+          }
           if (status.background_tasks_enabled === false) return view('后台已暂停', '本次启动暂停后台任务，仍可手动操作', 'var(--status-invalid)');
           if (status.background_tasks_enabled !== true) return view('等待状态同步', '尚未确认后台任务状态');
           if (!config.auto_run_enabled) return view('自动发送已暂停', '可在设置中调整自动发送开关', 'var(--status-invalid)');
@@ -3384,6 +3432,11 @@
             status.version = res.data.version || status.version;
             status.session_status = res.data.session_status || 'unknown';
             status.session_checked_at = res.data.session_checked_at ?? null;
+            status.session_check_stale = res.data.session_check_stale === true;
+            status.session_check_age_seconds = res.data.session_check_age_seconds ?? null;
+            status.session_check_reason = res.data.session_check_reason || null;
+            status.ledger_recovery_required = res.data.ledger_recovery_required === true;
+            status.task_phase = res.data.task_phase || null;
             status.background_tasks_enabled = typeof res.data.background_tasks_enabled === 'boolean' ? res.data.background_tasks_enabled : null;
             status.next_run = res.data.next_run || null;
             status.stopping = res.data.stopping === true;
@@ -3399,6 +3452,7 @@
             status.pending_retry_entries = Array.isArray(res.data.pending_retry_entries) ? res.data.pending_retry_entries : [];
             todaySummary.value = parseTodaySummary(res.data.today_summary);
             Object.assign(lastRunInfo, summarizeLastRun(res.data.last_run));
+            lastRunDetails.value = describeLastRun(res.data.last_run);
             // 连续失败时标签页标题加警示（比声音/震动可靠，不依赖浏览器前台或静音）
             document.title = status.consecutive_failures > 0
               ? `⚠️ 连续失败${status.consecutive_failures}轮 · 抖音自动续火花`
@@ -3559,6 +3613,7 @@
           ledgerVersion.value = null; ledgerReady.value = false; selectionFeedback.value = '';
           logsContent.value = ''; logsRefreshing.value = false; logsRefreshMessage.value = ''; messagesText.value = '';
           Object.assign(lastRunInfo, {time:'', summary:'', success:false});
+          lastRunDetails.value = []; resultDetailsOpen.value = false;
           for (const key of Object.keys(config)) delete config[key];
           Object.assign(config, defaultConfig);
           for (const key of Object.keys(emailCfg)) delete emailCfg[key];
@@ -3765,6 +3820,10 @@
         };
         const runStreak = async (dryRun = false) => {
           const requestEpoch = managementEpoch;
+          if (!dryRun && status.ledger_recovery_required) {
+            showIOSBanner('发送已阻止', '台账恢复后发送历史可能不完整，请先核对数据。');
+            return false;
+          }
           if (status.running || status.stopping || status.retry_dispatching) {
             ElementPlus.ElMessage.warning(status.stopping ? '后台任务尚未结束，结果待核对，请勿重复启动。' : status.running ? '当前任务仍在执行，请勿重复启动。' : '正在启动补发，请等待后台任务更新，勿重复启动。');
             return false;
@@ -4484,6 +4543,8 @@
           contactKey,
           toggleContactSelection,
           lastRunInfo,
+          lastRunDetails,
+          resultDetailsOpen,
           totalContactCount,
           selectedFriendCount,
           savedSelection,

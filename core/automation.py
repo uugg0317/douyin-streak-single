@@ -38,6 +38,14 @@ from .send_day import business_now, daily_skip_code
 
 logger = logging.getLogger("douyin-cloud-streak")
 
+
+def _set_task_phase(phase: str | None) -> None:
+    """Presentation only: never count a phase assignment as watchdog progress."""
+    try:
+        update_runtime(task_phase=phase)
+    except Exception:
+        logger.debug("任务阶段展示更新失败，继续原流程")
+
 STATE_PATH = DATA_DIR / "state.json"
 SCREENSHOT_PATH = DATA_DIR / "last_error.png"
 CHAT_URL = "https://www.douyin.com/chat"
@@ -1285,6 +1293,7 @@ def _send_message(page, msg_text: str, dry_run: bool, *, target_name: str = "") 
         if not _type_and_send(page, scope.input_box, msg_text, before_enter=before_enter,
                               before_submit=_persist_current_intent):
             return False, "文字未能输入到输入框"
+        _set_task_phase("confirming")
         return _confirm_delivery(page, scope.input_box, msg_text, baseline, scope=scope)
     finally:
         scope.dispose()
@@ -1730,6 +1739,16 @@ def _record_browser_session_failure(result: dict) -> None:
 
 def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, only_ids: list[str] | None = None,
                    force: bool = False, *, selected_snapshot: list[dict] | None = None) -> dict:
+    """Clear presentation state even when preflight returns early or raises."""
+    _set_task_phase("starting")
+    try:
+        return _run_send_body(dry_run, only_names, only_ids, force, selected_snapshot=selected_snapshot)
+    finally:
+        _set_task_phase(None)
+
+
+def _run_send_body(dry_run: bool = False, only_names: list[str] | None = None, only_ids: list[str] | None = None,
+                   force: bool = False, *, selected_snapshot: list[dict] | None = None) -> dict:
     """主入口：从好友台账读取勾选目标，逐个发送（在专用工作线程内运行）。"""
     cfg = load_config()
     messages = cfg.get("messages") or ["🔥"]
@@ -1827,6 +1846,7 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
     p = browser = context = page = None
     try:
         _check_send_stop()
+        _set_task_phase("opening_browser")
         # 优先使用预启动的浏览器（预启动已打开页面并等待联系人列表，节省数分钟）
         prewarmed = _get_prewarmed_page()
         if prewarmed:
@@ -1884,6 +1904,7 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
                 return result
 
             # 阻塞等待左侧联系人列表渲染完成（最多 3 轮，每轮 45 秒）
+            _set_task_phase("loading_contacts")
             list_ready = False
             for _ in range(3):
                 try:
@@ -1909,6 +1930,7 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
 
         # 按好友在会话列表中的上下位置排序，使定位滚动基本单调向下，
         # 避免在虚拟列表顶部/底部之间来回滚动（底部好友统一留到最后）
+        _set_task_phase("loading_contacts")
         targets = _order_targets_by_list(page, targets)
         logger.info("发送顺序（按列表位置）：%s",
                      [t.get("display_name") for t in targets])
@@ -1934,6 +1956,7 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
 
         for idx, entry in enumerate(targets):
             _check_send_stop()
+            _set_task_phase("locating")
             cur_name = entry.get("display_name", "")
             update_runtime(send_progress={
                 "total": n_targets, "done": idx, "current": cur_name,
@@ -2020,6 +2043,7 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
                 wait = _send_interval(deadline, remaining, gap_max, gap_min=gap_min)
                 # The prior guard ensures this cap can still honor gap_min.
                 wait = min(wait, max(gap_min, deadline - time.time() - _PER_FRIEND_FIXED_COST * 1.35))
+            _set_task_phase("waiting_gap")
             event.wait(wait) if event is not None else time.sleep(wait)
 
         if deadline is not None:
@@ -2038,6 +2062,7 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
             logger.error("运行异常: %s", e)
             result["failed"].append({"name": "_system", "reason": f"运行异常: {e}"})
     finally:
+        _set_task_phase("finishing")
         event = getattr(_send_context, "stop_event", None)
         if event is not None and event.is_set():
             result["stopped"] = True

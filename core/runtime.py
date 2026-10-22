@@ -40,6 +40,7 @@ def _default() -> dict:
         "consecutive_failures": 0,
         "auto_paused_until": 0,
         "send_progress": None,
+        "task_phase": None,
         "pending_retry_entries": [], "retry_status": "none",
         "retry_due_at": None, "retry_business_date": None,
         "retry_queue_version": None, "retry_reason": None,
@@ -87,6 +88,7 @@ def set_running(value: bool) -> None:
         rt["running"] = bool(value)
         rt["stopping"] = False
         rt["stop_reason"] = None
+        rt["task_phase"] = "starting" if value else None
         _save(rt)
 
 
