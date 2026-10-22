@@ -35,6 +35,7 @@
     if (!options || !options.api) throw new Error('QR login requires a same-origin API client');
     const api = options.api;
     let disposed = false, generation = 0, pollTimer = null, job = null, pendingAction = null;
+    let pendingStartRequest = null;
     let lastImageAt = 0, lastRevision = null, imagePending = false, notifiedJob = null, qrRequest = null;
     let verificationRequest = null, verificationFrame = null, interaction = null, lastVerificationAt = 0;
     let statusSerial = 0, minimumStatusSerial = 0, interactionError = '';
@@ -46,13 +47,15 @@
       verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,
       verificationBusy:false,interactionPending:false,gestureActive:false,
       statusError:'',imageError:'',verificationImageError:'',canRetrySync:false,canRetryImage:false,
-      saved:false,cleanupComplete:true,cleanupRetrying:false,canRetryCleanup:false};
+      saved:false,cleanupComplete:true,cleanupRetrying:false,canRetryCleanup:false,canRetryStart:false,startUnconfirmed:false};
     const snapshot = () => ({...state});
     function publish(patch) {
       state = {...state, ...patch};
       state.statusError=statusError;state.imageError=imageError;state.verificationImageError=verificationImageError;
       state.error=[statusError,imageError,verificationImageError,interactionError].filter(Boolean).join(' ');
       state.cleanupRetrying=pendingAction?.kind==='cleanup'||serverCleanupRetrying;
+      state.startUnconfirmed=!!pendingStartRequest&&!job;
+      state.canRetryStart=state.startUnconfirmed&&!pendingAction&&!disposed;
       state.canRetrySync=!!job&&!pendingAction&&!STOP.has(state.status)&&state.status!=='cancelling'&&
         (!!statusError||['sync_pending','cleanup_pending'].includes(state.status));
       state.canRetryCleanup=!!job&&!pendingAction&&!state.cleanupRetrying&&state.status==='cleanup_pending';
@@ -95,7 +98,7 @@
     function headers(active, mutation) {
       const value = {};
       if (active) value['X-QR-Job-Token'] = active.token;
-      if (mutation) value['X-Spark-QR-Request'] = '1';
+      if (mutation) { value['X-Spark-QR-Request'] = '1'; value['X-Requested-With'] = 'sparkkeeper'; }
       return value;
     }
     function handle(data, fallback) {
@@ -243,14 +246,17 @@
         return false;
       } finally { reads.delete(controller); schedule(attempt); }
     }
-    async function setup(kind) {
+    async function setup(kind, recoverStart=false) {
       if (disposed || pendingAction || state.status==='cancelling' || kind==='start' && (state.running || job)) return false;
       if (kind==='refresh' && (!job || !state.canRefresh)) return false;
+      if (kind==='start' && pendingStartRequest && !recoverStart) return false;
+      if (recoverStart && (!pendingStartRequest || job)) return false;
       const attempt=++generation, previous=job;
       statusError='';serverCleanupRetrying=false;
       stopReads(); clearImage();clearVerification(); lastImageAt=0;lastRevision=null;
       publish({status:'starting',running:true,message:kind==='refresh'?'正在刷新二维码…':LABELS.starting,canRefresh:false,deadline:0,saved:false,cleanupComplete:true});
-      const data=kind==='start'?{request_id:uuid()}:{job_id:previous.id};
+      if(kind==='start'&&!pendingStartRequest)pendingStartRequest=uuid();
+      const data=kind==='start'?{request_id:pendingStartRequest}:{job_id:previous.id};
       const promise=api.post(BASE+'/'+kind,data,{headers:headers(kind==='start'?null:previous,true),timeout:15000})
         .then(response=>response.data).catch(async originalError=>{
           // A reload loses the in-memory capability. Recover only an already
@@ -269,6 +275,7 @@
         const result=await promise;
         const active=handle(result,previous);
         if (!current(attempt)) return false; // cancellation/disposal owns the late handle
+        if(kind==='start')pendingStartRequest=null;
         job=active;apply(result,attempt);
         if (!STOP.has(state.status)) { refreshVisibleImage(attempt,true,result?.qr_revision ?? null);schedule(attempt); }
         return true;
@@ -278,7 +285,17 @@
           if(job){
             statusError=messageFrom(error,'刷新结果暂未确认，正在同步服务端状态。');
             publish({status:'sync_pending',running:true,hasJob:true,canRefresh:false,message:LABELS.sync_pending});schedule(attempt);
-          }else publish({status:'failed',running:false,hasJob:false,canRefresh:false,message:messageFrom(error,'无法开始二维码登录，请稍后重试。')});
+          }else {
+            const status=error?.response?.status;
+            const uncertain=kind==='start'&&(!status||status>=500);
+            if(uncertain){
+              statusError='开始请求的结果尚未确认。请点击“恢复本次扫码”，沿用原请求找回任务；不会自动重新开始或取消。';
+              publish({status:'sync_pending',running:false,hasJob:false,canRefresh:false,message:statusError});
+            }else{
+              if(kind==='start')pendingStartRequest=null;
+              publish({status:'failed',running:false,hasJob:false,canRefresh:false,message:messageFrom(error,'无法开始二维码登录，请稍后重试。')});
+            }
+          }
         }
         return false;
       } finally { if(pendingAction===action){pendingAction=null;if(current(attempt))publish({});} }
@@ -305,6 +322,10 @@
         }
         return false;
       }
+    }
+    async function retryStart() {
+      if(disposed||!pendingStartRequest||job||pendingAction)return false;
+      return setup('start',true);
     }
     async function retrySync() {
       if(disposed||!job||pendingAction||state.status==='cancelling'||STOP.has(state.status))return false;
@@ -423,7 +444,7 @@
       return abortGesture();
     }
     window.addEventListener('pagehide',dispose);
-    return {start:()=>setup('start'),refresh:()=>setup('refresh'),cancel,dispose,snapshot,retrySync,retryImage,retryCleanup,
+    return {start:()=>setup('start'),refresh:()=>setup('refresh'),cancel,dispose,snapshot,retryStart,retrySync,retryImage,retryCleanup,
       verificationPointerDown,verificationPointerMove,verificationPointerUp,verificationPointerCancel};
   }
   window.SparkQrLogin={create};

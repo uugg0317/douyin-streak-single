@@ -27,9 +27,13 @@ from pathlib import Path
 
 HELPER_ORIGIN = "http://127.0.0.1:17653"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# The legacy BAT also launches this file directly, outside package import mode.
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from state_validation import MAX_STATE, validate_storage_state
+
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,80}$")
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
-MAX_STATE = 5 * 1024 * 1024
 ACTIVE = {"starting", "waiting", "saving", "stopping"}
 ERROR_CODES = {"browser_failed", "browser_closed", "invalid_state", "save_failed", "cancelled",
                "timeout", "cleanup_failed", "helper_failed"}
@@ -81,38 +85,11 @@ def has_session(cookies, now=None):
 
 
 def validate_state(raw, now=None):
-    if not isinstance(raw, bytes) or not raw or len(raw) > MAX_STATE:
+    state = validate_storage_state(raw)
+    # QR export retains its stricter session-cookie precondition. This remains
+    # a local candidate check, not proof of acceptance by the remote platform.
+    if not has_session(state["cookies"], now):
         raise ValueError("invalid_state")
-    try:
-        state = json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeError):
-        raise ValueError("invalid_state") from None
-    if not isinstance(state, dict) or not has_session(state.get("cookies"), now):
-        raise ValueError("invalid_state")
-    if len(state["cookies"]) > 2000:
-        raise ValueError("invalid_state")
-    for cookie in state["cookies"]:
-        if not isinstance(cookie, dict) or not all(isinstance(cookie.get(key), str) for key in ("name", "value", "domain", "path")):
-            raise ValueError("invalid_state")
-        if not cookie["name"] or not cookie["domain"] or not cookie["path"].startswith("/"):
-            raise ValueError("invalid_state")
-        expiry = cookie.get("expires", -1)
-        if isinstance(expiry, bool) or not isinstance(expiry, (int, float)) or not math.isfinite(expiry) or expiry < -1:
-            raise ValueError("invalid_state")
-        if any(key in cookie and not isinstance(cookie[key], bool) for key in ("httpOnly", "secure")):
-            raise ValueError("invalid_state")
-        if "sameSite" in cookie and cookie["sameSite"] not in ("Lax", "Strict", "None"):
-            raise ValueError("invalid_state")
-    origins = state.get("origins", [])
-    if not isinstance(origins, list) or len(origins) > 100:
-        raise ValueError("invalid_state")
-    for origin in origins:
-        if (not isinstance(origin, dict) or not isinstance(origin.get("origin"), str)
-                or not origin["origin"].startswith(("https://", "http://"))
-                or not isinstance(origin.get("localStorage"), list)
-                or not all(isinstance(item, dict) and isinstance(item.get("name"), str)
-                           and isinstance(item.get("value"), str) for item in origin["localStorage"])):
-            raise ValueError("invalid_state")
     return state
 
 

@@ -1,5 +1,7 @@
+# 2.8 可选本机 systemd 示例；运行账号与 /opt/douyin-streak 目录须自行准备。
+# 不配置公网、代理或端口转发；deploy.sh 不会安装本示例。
 [Unit]
-Description=Douyin Streak Local Console - 抖音续火花本机面板
+Description=Douyin Streak 2.8 - Local Console
 Wants=network-online.target
 After=network-online.target
 
@@ -10,13 +12,15 @@ Group=douyin
 WorkingDirectory=/opt/douyin-streak
 Environment="PATH=/opt/douyin-streak/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="DATA_DIR=/opt/douyin-streak/data"
-Environment="ENV_FILE_PATH=/opt/douyin-streak/data/service.env"
 Environment="HOST=127.0.0.1"
+Environment="PORT=8000"
+Environment="SPARKKEEPER_BACKGROUND_TASKS=0"
+Environment="ENV_FILE_PATH=/opt/douyin-streak/data/service.env"
 Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/douyin-streak/.cache/ms-playwright"
-# 浏览器不常驻：每天 23:30 预启动（发送前30分钟），00:00 发送，发送完毕立即关闭
+# 以下浏览器参数只在任务显式启用后生效；此服务示例默认暂停后台任务。
 Environment="KEEP_BROWSER_ALWAYS=false"
 Environment="KEEP_PREWARMED_SECONDS=0"
-Environment="PREWARM_LEAD_MINUTES=30"
+Environment="PREWARM_LEAD_MINUTES=2"
 ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1366x768x24" /opt/douyin-streak/venv/bin/python app.py
 Restart=on-failure
 RestartSec=5

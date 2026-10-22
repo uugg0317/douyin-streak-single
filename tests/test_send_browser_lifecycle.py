@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PRELUDE = r'''
-import gc, json, threading, weakref
+import gc, json, threading, weakref, uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -53,7 +53,6 @@ def send(page,name,msg,dry):
     return True,'dry-run'
 
 B.sync_playwright=Mock(return_value=SimpleNamespace(start=start_driver))
-B._apply_stealth=Mock()
 A.open_browser=open_owned_browser
 A.get_valid_state_path=Mock(return_value=Path('offline-state-not-read.json'))
 A.load_config=Mock(return_value={'messages':['offline-message'],'max_friends_per_run':0,'send_gap_min':1,'send_gap_max':1})
@@ -67,7 +66,16 @@ A.send_to_contact=Mock(side_effect=send)
 A.ledger.confirm_join=Mock();A.ledger.mark_no_consumer_conversation=Mock();A.ledger.update_send_result=Mock()
 A.ledger.get_selected=Mock(return_value=[])
 def targets(*names):
-    A.ledger.get_selected.return_value=[{'display_name':name,'has_conversation':True,'channel':'consumer'} for name in names]
+    A.ledger.get_selected.return_value=[{'entry_id':uuid.uuid5(uuid.NAMESPACE_URL,name).hex,'display_name':name,'has_conversation':True,'channel':'consumer'} for name in names]
+
+def delivery_scope(page):
+    # Lifecycle tests fake DOM binding only; test_delivery_dom exercises the
+    # actual scope/selector/focus contract with real local Playwright.
+    box=Mock()
+    scope=SimpleNamespace(input_box=box,dispose=Mock())
+    A._bind_delivery_scope=Mock(return_value=scope)
+    A._delivery_scope_current=Mock(return_value=True)
+    return box
 '''
 
 
@@ -129,13 +137,13 @@ class SendBrowserLifecycleTests(unittest.TestCase):
 
     def test_dead_loop_during_locate_is_not_reported_as_missing_friend(self):
         self.isolated('''
-        page=Mock();page.get_by_text.side_effect=RuntimeError('Event loop is closed! private-fixture-details')
+        page=Mock();page.locator.side_effect=RuntimeError('Event loop is closed! private-fixture-details')
         A.logger=Mock()
         try:A._locate_contact(page,'Alpha')
         except BrowserSessionUnavailable as error:
             assert 'private-fixture' not in str(error)
         else:raise AssertionError('dead Playwright was swallowed as contact-not-found')
-        assert page.get_by_text.call_count==1
+        assert page.locator.call_count==1
         assert not A.logger.info.called
         ''')
 
@@ -149,8 +157,8 @@ class SendBrowserLifecycleTests(unittest.TestCase):
                 page.locator.side_effect=dead;call=lambda:A._verify_item_active(page,'Alpha')
             else:
                 A.detect_rate_limit=Mock(return_value=None)
-                page.locator.return_value.first.count.side_effect=dead
-                call=lambda:A._send_message(page,'offline-message',dry_run=True)
+                page.evaluate_handle.side_effect=dead
+                call=lambda:A._send_message(page,'offline-message',dry_run=True,target_name='Alpha')
             try:call()
             except BrowserSessionUnavailable:pass
             else:raise AssertionError(operation+' hid dead browser')
@@ -274,24 +282,25 @@ class SendBrowserLifecycleTests(unittest.TestCase):
 
     def test_input_confirmation_timeout_never_replays_enter(self):
         self.isolated('''
-        page=Mock();box=page.locator.return_value.first
-        box.count.return_value=1;box.bounding_box.return_value={'x':0,'y':0}
+        page=Mock();box=delivery_scope(page)
         A.detect_rate_limit=Mock(return_value=None);A._wait_text_in_box=Mock(return_value=True)
-        A._wait_input_cleared=Mock(return_value=False)
-        try:A._send_message(page,'offline-message',False)
+        from functools import partial
+        A._delivery_snapshot=Mock(return_value={'messages':[],'failures':[]})
+        box.inner_text.return_value=''
+        A._confirm_delivery=partial(A._confirm_delivery,timeout=0.005)
+        try:A._send_message(page,'offline-message',False,target_name='Alpha')
         except MessageDeliveryUnconfirmed:pass
         else:raise AssertionError('confirmation timeout must remain unknown')
         assert sum(call.args==('Enter',) for call in page.keyboard.press.call_args_list)==1
-        assert A._wait_input_cleared.call_count==1
+        assert A._delivery_snapshot.call_count>=2
         ''')
 
     def test_driver_failure_while_confirming_is_unknown_not_unattempted(self):
         self.isolated('''
-        page=Mock();box=page.locator.return_value.first
-        box.count.return_value=1;box.bounding_box.return_value={'x':0,'y':0}
+        page=Mock();box=delivery_scope(page)
         A.detect_rate_limit=Mock(return_value=None);A._wait_text_in_box=Mock(return_value=True)
-        A._wait_input_cleared=Mock(side_effect=RuntimeError('Event loop is closed! private fixture details'))
-        try:A._send_message(page,'offline-message',False)
+        A._delivery_snapshot=Mock(side_effect=[{'messages':[],'failures':[]},RuntimeError('Event loop is closed! private fixture details')])
+        try:A._send_message(page,'offline-message',False,target_name='Alpha')
         except MessageDeliveryUnconfirmed as error:assert 'private fixture' not in str(error)
         else:raise AssertionError('post-Enter failure must not be replayable')
         assert sum(call.args==('Enter',) for call in page.keyboard.press.call_args_list)==1
@@ -311,22 +320,76 @@ class SendBrowserLifecycleTests(unittest.TestCase):
         assert {item['name'] for item in result['deferred']}=={'Gamma'},result
         assert result['done']==2 and result['total']==3,result
         assert send_calls==['Alpha','Beta']
-        assert [call.args[0] for call in A.ledger.update_send_result.call_args_list]==['Alpha']
+        assert [call.args[0] for call in A.ledger.update_send_result.call_args_list]==['Alpha','Beta']
+        assert A.ledger.update_send_result.call_args_list[-1].kwargs['status']=='unconfirmed'
         assert [call.args[0] for call in A.ledger.confirm_join.call_args_list]==['Alpha']
         assert A._prewarmed_browser is None and drivers[0].stopped
         ''')
 
     def test_message_dry_run_never_types_or_checks_post_enter_confirmation(self):
         self.isolated('''
-        page=Mock();box=page.locator.return_value.first
-        box.count.return_value=1;box.bounding_box.return_value={'x':0,'y':0}
+        page=Mock();box=delivery_scope(page)
         A.detect_rate_limit=Mock(return_value=None)
         A._type_and_send=Mock(side_effect=AssertionError('dry run must never type'))
-        A._wait_input_cleared=Mock(side_effect=AssertionError('dry run must never wait for delivery'))
-        assert A._send_message(page,'offline-message',True)==(True,'dry-run')
-        A._type_and_send.assert_not_called();A._wait_input_cleared.assert_not_called()
+        A._confirm_delivery=Mock(side_effect=AssertionError('dry run must never wait for delivery'))
+        assert A._send_message(page,'offline-message',True,target_name='Alpha')==(True,'dry-run')
+        A._type_and_send.assert_not_called();A._confirm_delivery.assert_not_called()
         page.keyboard.press.assert_not_called();page.keyboard.type.assert_not_called()
         ''')
+
+
+    def test_rejected_contact_is_failed_nonretryable_and_only_later_ids_deferred(self):
+        self.isolated("""
+        def sending(page,name,msg,dry):
+            send_calls.append(name)
+            if name=='Beta':raise A.MessageDeliveryRejected()
+            return True,'accepted'
+        A.send_to_contact=Mock(side_effect=sending)
+        targets('Alpha','Beta','Gamma');result=A._run_send_impl(dry_run=False)
+        assert result['ok']==['Alpha'] and result.get('delivery_rejected') is True
+        rejected=result['failed'][0]
+        assert rejected['name']=='Beta' and rejected['code']=='delivery_rejected' and rejected['retryable'] is False
+        assert rejected['entry_id']==A.ledger.get_selected.return_value[1]['entry_id']
+        assert {x['entry_id'] for x in result['deferred']}=={A.ledger.get_selected.return_value[2]['entry_id']}
+        assert send_calls==['Alpha','Beta']
+        assert A.ledger.update_send_result.call_args_list[-1].kwargs['status']=='rejected'
+        assert A._prewarmed_browser is None and drivers[0].stopped
+        """)
+
+
+    def test_only_ids_without_credentials_retains_unattempted_ids_without_browser(self):
+        self.isolated("""
+        targets('Alpha','Beta')
+        beta=A.ledger.get_selected.return_value[1]['entry_id']
+        A.get_valid_state_path=Mock(return_value=None)
+        result=A._run_send_impl(dry_run=False,only_ids=[beta])
+        assert result['credentials_missing'] is True and result['logged_out'] is False
+        assert result['total']==1 and result['done']==0 and not send_calls and not drivers
+        assert result['deferred']==[{'entry_id':beta,'name':'Beta','code':'credentials_missing',
+                                    'retryable':True,'reason':'缺少凭证，尚未尝试；恢复凭证后可继续'}]
+        """)
+
+    def test_only_ids_never_falls_back_to_same_name(self):
+        self.isolated("""
+        targets('Alpha','Beta')
+        alpha=A.ledger.get_selected.return_value[0]['entry_id']
+        result=A._run_send_impl(dry_run=True,only_ids=[alpha])
+        assert send_calls==['Alpha'] and result['ok_entries'][0]['entry_id']==alpha
+        send_calls.clear()
+        result=A._run_send_impl(dry_run=True,only_ids=['missing-id'])
+        assert not send_calls and not result['ok']
+        A._close_prewarmed()
+        """)
+
+    def test_ambiguous_consumer_is_skipped_without_pressing_enter(self):
+        self.isolated("""
+        targets('Alpha');A.ledger.get_selected.return_value[0]['identity_ambiguous']=True
+        result=A._run_send_impl(dry_run=False)
+        assert not send_calls and result['skipped'][0]['code']=='identity_ambiguous'
+        assert result['skipped'][0]['retryable'] is False
+        A.ledger.update_send_result.assert_not_called()
+        A._close_prewarmed()
+        """)
 
     def test_closed_browser_before_enter_remains_unattempted_session_failure(self):
         self.isolated('''

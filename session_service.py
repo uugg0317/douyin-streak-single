@@ -4,30 +4,70 @@ from __future__ import annotations
 
 import os
 import socket
+import threading
 import time
-from datetime import datetime
 
 import app_common
 from app_common import logger
 from core import automation
 from core.runtime import load_runtime, update_runtime
+from core.send_day import business_now
 from email_service import _render_template, _send_email, load_email_config
 
-# 每天体检时刻（HH:MM）；默认 12:30，距 0 点发送约 11.5 小时，足够重新部署登录态
+# 每天体检时刻（HH:MM）；默认 12:30，距 0 点发送约 11.5 小时，便于在面板重新扫码
 SESSION_CHECK_TIME = os.environ.get("SESSION_CHECK_TIME", "12:30").strip()
 
-WARN_SUBJECT = "【预警】抖音登录态异常，请尽快重新部署（{host}）"
+WARN_SUBJECT = "【预警】抖音登录态异常，请在面板重新扫码（{host}）"
 WARN_BODY = (
     "抖音自动续火花检测到登录态异常，请在今日发送前处理：\n\n"
     "服务器：{host}（解析 IP {host_ip}）\n"
     "检测时间：{time}\n\n"
     "异常原因：{reason}\n\n"
     "处理方法：\n"
-    "1. 在电脑浏览器登录抖音网页版，重新导出登录态 state.json；\n"
-    "2. 打开面板「凭证」页上传新的 state.json；\n"
-    "3. 可在「概览」页点「立即续火花」手动验证一次。\n\n"
+    "1. 打开面板「凭证」页，开始扫码登录；\n"
+    "2. 使用抖音手机端扫码并确认，等待面板显示凭证已保存；\n"
+    "3. 查看账号与登录状态，再由你决定是否手动发送；保存凭证不代表消息已投递。\n\n"
     "{cookie}\n"
 )
+
+FAILURE_SUBJECT = "【升级告警】抖音续火花连续 {failures} 轮未成功（{host}）"
+FAILURE_BODY = (
+    "抖音自动续火花已连续 {failures} 轮未成功，达到升级告警阈值 {threshold} 轮。\n\n"
+    "服务器：{host}\n检查时间：{time}\n\n"
+    "手动运行和续发也会计入轮次，此数字不代表连续自然日。\n"
+    "请检查登录态、好友定位和最近运行日志。历史失败不会再使每日定时发送跳过；"
+    "当前登录异常、验证码或限流仍会停止本轮，需要由你处理。\n"
+)
+_failure_warning_lock = threading.Lock()
+_catch_up_notice_lock = threading.Lock()
+
+CATCH_UP_SUBJECT = "【补跑已启动】抖音续火花（{host}）"
+CATCH_UP_BODY = (
+    "已启动今日补跑（业务日期：{date}，Asia/Shanghai）。\n\n"
+    "服务器：{host}\n启动检查时间：{time}\n\n"
+    "这封邮件只确认补跑任务已经启动，不代表消息已投递或火花已续上。"
+    "实际成功、失败和待核对结果请查看控制台运行记录。"
+    "同一天不会因为此通知再次启动补跑。\n"
+)
+
+
+def notify_catch_up_started(run_date: str) -> bool:
+    """补跑启动通知独立去重，沿用预警邮件开关，发信成功后才标记。"""
+    if not _warn_email_enabled():
+        return False
+    with _catch_up_notice_lock:
+        rt = load_runtime()
+        if rt.get("catch_up_notice_date") == run_date:
+            return False
+        values = {
+            "host": socket.gethostname(), "date": run_date,
+            "time": business_now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        cfg = load_email_config()
+        _send_email(cfg, _render_template(CATCH_UP_SUBJECT, values), _render_template(CATCH_UP_BODY, values))
+        update_runtime(catch_up_notice_date=run_date)
+        logger.info("已发送今日补跑启动通知（%s）；不代表消息投递成功", run_date)
+        return True
 
 
 def _cookie_summary(health: dict | None) -> str:
@@ -61,7 +101,7 @@ def _send_warning(reason: str, health: dict | None = None, force: bool = False) 
     if not _warn_email_enabled():
         logger.info("登录态预警邮件已被 SESSION_WARN_EMAIL_ENABLED=off 关闭，跳过发送")
         return False
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = business_now().strftime("%Y-%m-%d")
     rt = load_runtime()
     if not force and rt.get("session_warn_date") == today:
         logger.info("登录态预警今日已发送，跳过重复邮件")
@@ -75,7 +115,7 @@ def _send_warning(reason: str, health: dict | None = None, force: bool = False) 
     values = {
         "host": host,
         "host_ip": host_ip,
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time": business_now().strftime("%Y-%m-%d %H:%M:%S"),
         "reason": reason,
         "cookie": _cookie_summary(health),
     }
@@ -99,6 +139,12 @@ def run_session_check() -> None:
         _run_session_check_locked()
     finally:
         app_common.run_lock.release()
+    # 补跑会重新获取 run_lock，必须等体检释放后再检查，避免把自己当成忙碌。
+    try:
+        from tasks_service import ensure_today_sent
+        ensure_today_sent()
+    except Exception:
+        logger.exception("登录态体检后的今日补跑检查失败")
 
 
 def _run_session_check_locked() -> None:
@@ -156,6 +202,8 @@ def _run_session_check_locked() -> None:
 
 def notify_after_run(result: dict) -> None:
     """真实发送后调用：掉线 / 0 成功时补一封预警（best-effort，失败只记日志）。"""
+    if result.get("dry_run"):
+        return
     try:
         if result.get("logged_out"):
             health = {"cookie": automation.scan_state_cookies()}
@@ -164,3 +212,35 @@ def notify_after_run(result: dict) -> None:
             _send_warning("今晨发送 0 成功，可能登录态失效或页面结构变化", None)
     except Exception as e:
         logger.warning("发送后预警处理失败：%s", e)
+    # 单独处理，普通预警今日已发或发送失败都不能吞掉升级告警。
+    try:
+        _send_failure_warning()
+    except Exception as e:
+        logger.warning("连续失败升级告警发送失败：%s", e)
+
+
+def _send_failure_warning() -> bool:
+    """连续失败达到阈值时每天独立告警一次；成功投递后才标记。"""
+    if not _warn_email_enabled():
+        return False
+    from core.scheduler import FAILURE_BREAKER_THRESHOLD
+
+    with _failure_warning_lock:
+        rt = load_runtime()
+        failures = int(rt.get("consecutive_failures") or 0)
+        if failures < FAILURE_BREAKER_THRESHOLD:
+            return False
+        today = business_now().strftime("%Y-%m-%d")
+        if rt.get("failure_warning_date") == today:
+            return False
+        values = {
+            "host": socket.gethostname(),
+            "time": business_now().strftime("%Y-%m-%d %H:%M:%S"),
+            "failures": failures,
+            "threshold": FAILURE_BREAKER_THRESHOLD,
+        }
+        cfg = load_email_config()
+        _send_email(cfg, _render_template(FAILURE_SUBJECT, values), _render_template(FAILURE_BODY, values))
+        update_runtime(failure_warning_date=today)
+        logger.warning("已发送连续 %s 轮未成功的升级告警", failures)
+        return True

@@ -3,33 +3,47 @@
 from __future__ import annotations
 
 import app_common
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from fastapi import HTTPException
 
 from app_common import logger
+from auth_service import _check_auth
 from core import ledger
 from core.config import load_config
 from core.runtime import set_running
 from models import RunBody
-from tasks_service import _start_run
+from tasks_service import _start_run, _start_pending_retry
 
 router = APIRouter()
 
 
 @router.post("/api/run")
-def api_run(body: RunBody) -> dict:
-    targets = ledger.get_selected()
-    if not targets:
-        cfg = load_config()
-        if not cfg.get("friends"):
-            raise HTTPException(status_code=400, detail="未勾选任何好友！请先在「好友与消息」中勾选好友后再执行。")
-    _start_run(bool(body.dry or body.dry_run))
+def api_run(body: RunBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    if body.expected_ledger_version is not None:
+        _start_run(bool(body.dry or body.dry_run), force=body.force,
+                   expected_ledger_version=body.expected_ledger_version)
+    else:
+        targets = ledger.get_selected()
+        if not targets:
+            cfg = load_config()
+            if not ledger.legacy_import_allowed() or not cfg.get("friends"):
+                raise HTTPException(status_code=400, detail="未勾选任何好友！请先在「好友与消息」中勾选好友后再执行。")
+        _start_run(bool(body.dry or body.dry_run), force=body.force)
+    return {"ok": True, "started": True}
+
+
+@router.post("/api/run/pending")
+def api_run_pending(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    _start_pending_retry()
     return {"ok": True, "started": True}
 
 
 @router.post("/api/reset-running")
-def api_reset_running() -> dict:
+def api_reset_running(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
     """仅修复无持锁线程时遗留的界面状态，绝不释放其它线程持有的锁。"""
+    _check_auth(token)
     if app_common.run_lock.locked():
         raise HTTPException(
             status_code=409,

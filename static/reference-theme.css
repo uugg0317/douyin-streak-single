@@ -1,24 +1,47 @@
-/* Reference v2.3 glass and motion, with the current 2.5 QR interface preserved.
+/* Reference glass and motion, with the current QR interface preserved.
    Ordinary glass, navigation and button values live in the original index CSS. */
 /* Credential cards and buttons inherit the same .card / .el-button material
    as the other views; only QR layout and state motion are specialized here. */
-body.reference-theme #app .credentials-view { --silk-ease: cubic-bezier(.22, .61, .36, 1); }
-body.reference-theme #app .credentials-view { max-width: 680px; }
+body.reference-theme {
+  --status-valid: #61ee92;
+  --status-invalid: #ff8178;
+  --status-pending: #f2d492;
+  --detail-ink: #fff7e8;
+  --detail-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+}
+body.reference-theme #app .status-detail {
+  color: var(--detail-ink); font-size: 13px; line-height: 1.65; font-weight: 500;
+  text-shadow: var(--detail-shadow); overflow-wrap: anywhere;
+}
+body.reference-theme #app .stat-value,
+body.reference-theme #app .credential-summary > div:first-child > span { text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+body.reference-theme #app .today-results { padding: 14px 20px; margin-bottom: 12px; }
+body.reference-theme #app .today-results .card-header { margin-bottom: 8px; padding-bottom: 0; border: 0; }
+body.reference-theme #app .today-results .card-title { font-size: 15px; }
+body.reference-theme #app .today-results .card-desc { margin-top: 2px; font-size: 12px; }
+body.reference-theme #app .today-results__message { color: var(--detail-ink); font-size: 14px; line-height: 1.6; font-weight: 600; text-shadow: var(--detail-shadow); }
+body.reference-theme #app .today-results .status-detail { margin-top: 4px; }
+body.reference-theme #app .credentials-view { --silk-ease: cubic-bezier(.22, 1, .36, 1); max-width: 600px; }
 body.reference-theme #app .credential-summary,
-body.reference-theme #app .qr-login-panel { width: 100%; max-width: none !important; border-radius: 24px !important; padding: 24px !important; }
+body.reference-theme #app .qr-login-panel { width: 100%; max-width: none !important; border-radius: 20px !important; padding: 18px 20px !important; }
 body.reference-theme #app .credentials-view .stagger-item {
   animation: silk-card-enter .55s var(--silk-ease) both;
 }
 @keyframes silk-card-enter { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
 body.reference-theme #app .qr-login-panel h3 { font-size: 19px !important; color: var(--text-main); letter-spacing: .02em; }
+body.reference-theme #app :is(.qr-intro, .qr-feedback, .qr-countdown, .qr-placeholder p) {
+  color: var(--detail-ink) !important; font-size: 13px; line-height: 1.65; font-weight: 500; text-shadow: var(--detail-shadow);
+}
+body.reference-theme #app .qr-intro { margin-bottom: 10px; }
+body.reference-theme #app .qr-actions { margin-bottom: 12px !important; }
 body.reference-theme #app .qr-stepper {
-  position: relative; margin: 22px 0 24px; padding: 5px 0 13px; isolation: isolate;
+  position: relative; margin: 14px 0 16px; padding: 2px 0 10px; isolation: isolate;
 }
 body.reference-theme #app .qr-step-highlight {
-  position: absolute; top: 0; left: 0; width: 25%; height: calc(100% - 13px); z-index: -1;
-  border: 1px solid rgba(255, 255, 255, .25); border-radius: 13px;
-  background: rgba(255, 255, 255, .12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
+  position: absolute; top: 0; left: 0; width: 25%; height: calc(100% - 10px); z-index: -1;
+  border: 1px solid rgba(255, 241, 206, .38); border-radius: 12px;
+  background: linear-gradient(115deg, rgba(255, 236, 181, .22), rgba(255, 255, 255, .1));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 3px 12px rgba(0, 0, 0, .08);
   opacity: 0; transform: translateX(calc(var(--step-index) * 100%));
   transition: transform 420ms var(--silk-ease), opacity 280ms ease;
   will-change: transform;
@@ -26,32 +49,34 @@ body.reference-theme #app .qr-step-highlight {
 body.reference-theme #app .qr-stepper.has-stage .qr-step-highlight { opacity: 1; }
 body.reference-theme #app .qr-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; list-style: none; }
 body.reference-theme #app .qr-steps li {
-  display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 5px;
-  border: 0; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--text-regular); white-space: nowrap;
+  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 3px;
+  border: 0; min-width: 0; font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--detail-ink); white-space: nowrap;
+  text-shadow: var(--detail-shadow);
   transition: color .35s ease;
 }
 body.reference-theme #app .qr-step-number {
-  display: inline-flex; align-items: center; justify-content: center; width: 23px; height: 23px; flex-shrink: 0;
-  border: 1px solid var(--border-dark); border-radius: 50%; font: 11px/1 var(--font-mono); color: var(--text-main);
-  transition: border-color .35s ease, background .35s ease, color .35s ease;
+  display: inline-flex; align-items: center; justify-content: center; width: 21px; height: 21px; flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, .45); border-radius: 50%; font: 600 11px/1 var(--font-mono); color: var(--detail-ink);
+  background: rgba(0, 0, 0, .14);
+  transition: border-color 420ms ease, background 420ms ease, color 420ms ease, box-shadow 420ms ease;
 }
-body.reference-theme #app .qr-steps li.active { color: var(--text-main); font-weight: 600; }
-body.reference-theme #app .qr-steps li.active .qr-step-number { color: var(--text-main); border-color: rgba(255, 255, 255, .45); background: rgba(255, 255, 255, .18); }
-body.reference-theme #app .qr-steps li.complete { color: var(--color-success); }
-body.reference-theme #app .qr-steps li.complete .qr-step-number { border-color: var(--color-success); color: var(--color-success); }
-body.reference-theme #app .qr-step-rail { position: absolute; bottom: 0; left: 12.5%; right: 12.5%; height: 2px; overflow: hidden; background: rgba(255, 255, 255, .15); }
-body.reference-theme #app .qr-step-progress { height: 100%; background: linear-gradient(90deg, var(--color-accent), #5ac8fa); transform-origin: left; transform: scaleX(var(--step-progress)); transition: transform 420ms var(--silk-ease); }
+body.reference-theme #app .qr-steps li.active { color: #fff; font-weight: 650; }
+body.reference-theme #app .qr-steps li.active .qr-step-number { color: #fff; border-color: #f7dfa6; background: rgba(200, 161, 76, .3); box-shadow: 0 0 0 3px rgba(255, 230, 172, .1); }
+body.reference-theme #app .qr-steps li.complete { color: var(--status-valid); }
+body.reference-theme #app .qr-steps li.complete .qr-step-number { border-color: var(--status-valid); color: var(--status-valid); background: rgba(29, 87, 46, .25); }
+body.reference-theme #app .qr-step-rail { position: absolute; bottom: 0; left: 12.5%; right: 12.5%; height: 3px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, .2); }
+body.reference-theme #app .qr-step-progress { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #c7a65c, #fff0bd); transform-origin: left; transform: scaleX(var(--step-progress)); transition: transform 420ms var(--silk-ease); }
 body.reference-theme #app .qr-code-frame {
-  min-height: 252px !important; border-radius: 20px !important;
+  min-height: 200px !important; border-radius: 18px !important; margin-bottom: 10px !important;
   background: rgba(255, 255, 255, .12) !important;
   border-color: rgba(255, 255, 255, .25) !important;
   box-shadow: inset 0 1px 10px rgba(0, 0, 0, .04);
 }
-body.reference-theme #app .qr-code-frame.has-image { background: #fff !important; box-shadow: 0 12px 35px rgba(0, 0, 0, .2); }
+body.reference-theme #app .qr-code-frame.has-image { min-height: 252px !important; background: #fff !important; box-shadow: 0 12px 35px rgba(0, 0, 0, .2); }
 body.reference-theme #app .qr-code-frame img { animation: none !important; transition: none !important; transform: none !important; }
 body.reference-theme #app .qr-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-body.reference-theme #app .qr-placeholder p { color: var(--text-regular) !important; padding-bottom: 0 !important; }
-body.reference-theme #app .qr-idle-mark { display: grid; place-items: center; width: 68px; height: 68px; border-radius: 20px; color: var(--text-main); background: rgba(255, 255, 255, .08); }
+body.reference-theme #app .qr-placeholder p { padding: 12px 0 0 !important; }
+body.reference-theme #app .qr-idle-mark { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; color: var(--detail-ink); background: rgba(255, 255, 255, .1); }
 body.reference-theme #app .qr-idle-mark.is-working { animation: silk-breathe 3s ease-in-out infinite; }
 @keyframes silk-breathe { 0%,100% { opacity: .65; } 50% { opacity: 1; } }
 body.reference-theme #app .qr-success-mark { width: 72px; height: 72px; stroke: var(--color-success); stroke-width: 2; }
@@ -129,6 +154,13 @@ body.reference-theme .login-card[data-reference-tilt]:hover {
 }
 body.reference-theme .card-3d { perspective: 800px; }
 
+/* Collapsing labels leave no invisible flex gap beside the centered icon. */
+body.reference-theme #app .email-view-button { position: relative; min-height: 48px; margin: 0; font-family: inherit; }
+body.reference-theme #app .email-view-button > span { color: var(--detail-ink); text-shadow: var(--detail-shadow); }
+body.reference-theme #app .email-view-button.is-collapsed { gap: 0 !important; }
+body.reference-theme #app .email-view-button.is-collapsed > span { position: absolute; pointer-events: none; }
+body.reference-theme #app .email-view-button.is-collapsed > svg { margin: auto; }
+
 @media (max-width: 768px) {
   /* Preserve all six targets; the original 56px minima can exceed 375px. */
   body.reference-theme .side-nav { padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) !important; gap: 6px !important; }
@@ -144,9 +176,10 @@ body.reference-theme .card-3d { perspective: 800px; }
   body.reference-theme .status-pill { font-size: 10px; padding: 4px 7px; }
   body.reference-theme .topbar-right > .muted { display: none; }
   body.reference-theme #app .credential-summary, body.reference-theme #app .qr-login-panel { padding: 18px 16px !important; border-radius: 20px !important; }
-  body.reference-theme #app .qr-steps li { flex-direction: column; gap: 6px; padding: 8px 1px; font-size: 11px; }
-  body.reference-theme #app .qr-stepper { margin: 18px 0 20px; }
+  body.reference-theme #app .qr-steps li { flex-direction: column; gap: 4px; padding: 6px 1px; font-size: 12px; }
+  body.reference-theme #app .qr-stepper { margin: 12px 0 14px; }
   body.reference-theme #app .qr-code-frame { max-width: 100%; }
+  body.reference-theme #app #emailBar:not(.is-expanded) .email-view-button > span { white-space: normal !important; line-height: 1.45; }
 }
 @media (prefers-reduced-motion: reduce) {
   body.reference-theme *, body.reference-theme *::before, body.reference-theme *::after {

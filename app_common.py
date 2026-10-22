@@ -17,52 +17,42 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+from env_bootstrap import ENV_PATH, load_environment
+
+# Shell settings win; .env must be available before DATA_DIR, logging and locks.
+load_environment()
+
 from core.config import DATA_DIR
 from core.runtime import setup_logging
+from core.run_progress import run_lock, progress
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 # 服务部署和桌面打包都可以把可写配置放到代码目录之外。未显式指定时，
 # 源码运行继续使用项目根目录 .env，保持向后兼容。
-_env_file_override = os.environ.get("ENV_FILE_PATH", "").strip()
-if _env_file_override:
-    ENV_PATH = Path(_env_file_override).expanduser().resolve()
-elif getattr(sys, "frozen", False):
-    ENV_PATH = Path(sys.executable).resolve().parent / ".env"
-else:
-    ENV_PATH = BASE_DIR / ".env"
 # 版本号单一来源：发版只改这里；/api/health、/api/status 与前端界面均读取此值
-VERSION = "2.6"
+VERSION = "2.8"
 PID_PATH = DATA_DIR / "server.pid"  # 单实例锁文件：防旧实例 scheduler 残留再发消息
 # 允许用环境变量覆盖锁文件路径（测试/本地演练时避免抢占生产实例的锁）
 if os.environ.get("INSTANCE_LOCK_PATH", "").strip():
     PID_PATH = Path(os.environ["INSTANCE_LOCK_PATH"].strip())
 
 logger = setup_logging()
-run_lock = threading.Lock()
 _env_file_lock = threading.Lock()
 contacts_fetching = False
 harvesting = False
-_run_started_at = 0.0  # 当前持锁任务的开始时间戳，供看门狗识别真正卡死
 
 
 def _mark_run_started() -> None:
-    global _run_started_at
-    _run_started_at = time.time()
+    # The lock itself records every acquisition, including short QR operations.
+    progress()
 
 
 # ── 环境变量 ──────────────────────────────────────────────────────────────
 
 
 def _load_env() -> None:
-    env_path = ENV_PATH
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
+    load_environment(ENV_PATH)
 
 
 def _env(name: str) -> str:
@@ -136,6 +126,3 @@ def save_env_values(updates: dict) -> None:
     """线程安全地更新部署环境文件，避免两个管理请求互相覆盖。"""
     with _env_file_lock:
         _save_env_values_locked(updates)
-
-
-_load_env()

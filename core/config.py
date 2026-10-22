@@ -130,6 +130,30 @@ DEFAULT_CONFIG = {
 
 _lock = threading.RLock()
 
+LOCKED_FIELDS = ("messages", "schedule_time", "jitter_minutes", "send_gap_min", "send_gap_max")
+
+
+class LockedConfigChange(ValueError):
+    def __init__(self, changed_fields: list[str], effective_config: dict):
+        self.changed_fields = changed_fields
+        self.effective_config = effective_config
+        super().__init__("这些配置已锁定，未保存任何改动：" + "、".join(changed_fields))
+
+
+def _locked_value(key: str, value):
+    """Compare effective values, so an equivalent number/time is not an edit."""
+    try:
+        if key in {"jitter_minutes", "send_gap_min", "send_gap_max"}:
+            return int(value)
+        if key == "schedule_time":
+            hh, mm = str(value).split(":")
+            return f"{int(hh):02d}:{int(mm):02d}"
+        if key == "messages" and isinstance(value, list):
+            return [str(item) for item in value if str(item).strip()]
+    except (ValueError, TypeError):
+        pass
+    return value
+
 
 def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
@@ -228,7 +252,13 @@ def _save_config_locked(cfg: dict | None) -> dict:
     return merged
 
 
-def save_config(cfg: dict | None) -> dict:
+def save_config(cfg: dict | None, *, reject_locked_changes: bool = False) -> dict:
     """串行化完整的读取-合并-写入事务，避免并发管理请求互相覆盖。"""
     with _lock:
+        if reject_locked_changes:
+            effective = load_config()
+            changed = [key for key in LOCKED_FIELDS if cfg and key in cfg
+                       and _locked_value(key, cfg[key]) != _locked_value(key, effective.get(key))]
+            if changed:
+                raise LockedConfigChange(changed, effective)
         return _save_config_locked(cfg)

@@ -1,23 +1,28 @@
-# 由线上服务器 Python 3.9（venv）已验证环境冻结；部署优先使用本文件以避免无意升级。
+# 唯一安装/构建依据，适用于 Python 3.10 及以上；修改后必须重新验证。
+# 直接依赖：API、服务入口、浏览器自动化、定时任务、上传解析和数据校验。
+fastapi==0.128.8
+uvicorn==0.39.0
+playwright==1.60.0
+APScheduler==3.11.3
+python-multipart==0.0.20
+pydantic==2.13.5
+
+# 传递依赖：完整锁定解析结果。Windows 采用已有预编译 wheel 的 greenlet。
 annotated-doc==0.0.5
 annotated-types==0.7.0
 anyio==4.12.1
-APScheduler==3.11.3
 click==8.1.8
+colorama==0.4.6; sys_platform == "win32"
 eval_type_backport==0.4.0
 exceptiongroup==1.3.1
-fastapi==0.128.8
-greenlet==3.2.5
+greenlet==3.3.0; sys_platform == "win32"
+greenlet==3.2.5; sys_platform != "win32"
 h11==0.16.0
 idna==3.20
-playwright==1.60.0
-playwright-stealth==2.0.3
-pydantic==2.13.5
 pydantic_core==2.46.5
 pyee==13.0.1
-python-multipart==0.0.20
 starlette==0.49.3
 typing-inspection==0.4.2
 typing_extensions==4.16.0
+tzdata==2026.5; sys_platform == "win32"
 tzlocal==5.3.1
-uvicorn==0.39.0

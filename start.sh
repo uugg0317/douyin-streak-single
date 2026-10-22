@@ -1,72 +1,38 @@
-#!/bin/bash
-# 抖音续火花 - 单账号本机启动脚本
-# 用法: bash start.sh
-
+#!/usr/bin/env bash
+# 抖音续火花 2.8：仅在本机启动，不配置公网入口。
 set -euo pipefail
-
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
-
-# 后端保持回环监听；后台任务沿用既有开关与配置。
-export HOST="127.0.0.1"
-
-# 检查 Python
-if ! command -v python3 &> /dev/null; then
-    echo "[错误] 未找到 python3，请先安装 Python 3.10+"
-    exit 1
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[错误] 请先安装 Python 3.10 及以上及 venv 支持。"
+  exit 1
 fi
-
-# 检查虚拟环境，没有则创建
-if [ ! -d "venv" ]; then
-    echo "[1/3] 创建 Python 虚拟环境..."
-    python3 -m venv venv
-fi
-
-# 固定浏览器内核位置，避免以 root 安装、以 douyin 用户运行时找不到 Chromium。
+python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else "需要 Python 3.10 及以上")'
+export HOST=127.0.0.1
+export PORT=8000
+export SPARKKEEPER_BACKGROUND_TASKS=0
+export PYTHONUTF8=1
+export ENV_FILE_PATH="${ENV_FILE_PATH:-$SCRIPT_DIR/.env}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$SCRIPT_DIR/.cache/ms-playwright}"
-mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
-
-# 与 deploy.sh 共用同一份配置；源码直跑则继续使用项目根目录 .env。
-if [ -z "${ENV_FILE_PATH:-}" ]; then
-    if [ -f "$SCRIPT_DIR/data/service.env" ]; then
-        export ENV_FILE_PATH="$SCRIPT_DIR/data/service.env"
-    else
-        export ENV_FILE_PATH="$SCRIPT_DIR/.env"
-    fi
-fi
 if [ ! -f "$ENV_FILE_PATH" ]; then
-    cp "$SCRIPT_DIR/.env.example" "$ENV_FILE_PATH"
-    chmod 600 "$ENV_FILE_PATH"
-    echo "[可选配置] 已生成 $ENV_FILE_PATH，可稍后填写 SMTP 等设置；现在继续启动本机面板。"
+  (umask 077; cp "$SCRIPT_DIR/.env.example" "$ENV_FILE_PATH")
 fi
-
-# 仅在依赖清单变化时安装，避免每次启动都联网并改动运行环境。
-REQ_FILE="requirements.txt"
-if [ -f "requirements.lock" ]; then
-    REQ_FILE="requirements.lock"
-fi
-REQ_HASH="$(python3 -c 'import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$REQ_FILE")"
+python3 tools/ensure_venv.py --project-root "$SCRIPT_DIR"
+REQ_HASH="$(python3 -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("requirements.lock").read_bytes()).hexdigest())')"
 REQ_STAMP="venv/.requirements.sha256"
 if [ ! -f "$REQ_STAMP" ] || [ "$(tr -d '\r\n' < "$REQ_STAMP")" != "$REQ_HASH" ]; then
-    echo "[2/3] 安装依赖..."
-    venv/bin/python -m pip install --quiet --upgrade pip
-    venv/bin/python -m pip install --quiet -r "$REQ_FILE"
-    printf '%s\n' "$REQ_HASH" > "$REQ_STAMP"
-else
-    echo "[2/3] 依赖未变化，跳过安装"
+  echo "[安装] 按锁定清单准备依赖。"
+  venv/bin/python -m pip install -r requirements.lock
+  printf '%s\n' "$REQ_HASH" > "$REQ_STAMP"
 fi
-
-# 安装 Playwright 浏览器（首次运行或 Playwright 升级后所需 revision 变化时）
-if ! venv/bin/python -c 'import os; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); path=p.chromium.executable_path; p.stop(); raise SystemExit(0 if os.path.isfile(path) else 1)'; then
-    echo "  安装 Playwright Chromium 浏览器..."
-    venv/bin/python -m playwright install chromium
+venv/bin/python startup_check.py --dependencies-only
+if ! venv/bin/python startup_check.py; then
+  echo "[安装] 准备 Chromium；如系统库缺失，请先按提示安装所需系统库。"
+  venv/bin/python -m playwright install chromium
+  venv/bin/python startup_check.py
 fi
-
-# 启动应用
-echo "[3/3] 启动抖音续火花服务..."
-echo "  管理后台: http://127.0.0.1:8000"
-echo "  面板直接打开；后台任务遵循现有开关与配置。"
-echo "  按 Ctrl+C 停止"
-echo ""
-
+echo "[版本] 抖音续火花 2.8（本机无密码门）"
+echo "[本机地址] http://127.0.0.1:8000/"
+echo "[运行模式] 后台任务暂停，手动操作由控制台发起。"
+echo "[停止服务] 按 Ctrl+C。"
 exec venv/bin/python app.py

@@ -14,6 +14,7 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+TOKEN = "qr-route-unit-test-token-not-a-real-secret"
 
 PREAMBLE = r'''
 import asyncio
@@ -28,12 +29,14 @@ from fastapi.responses import JSONResponse
 from urllib.parse import parse_qs
 import io
 import app_common
+import auth_service
 import middleware
 from core import config as cfg
 from core.qr_login import QrLoginForbidden, QrLoginInvalid, QrLoginNotFound
 from routers import qr_credentials as routes
 from routers import credentials
 
+TOKEN = "qr-route-unit-test-token-not-a-real-secret"
 JOB = "a" * 32
 JOB_TOKEN = "fake-capability-" + "b" * 48
 BASE = "/api/credentials/qr"
@@ -105,15 +108,17 @@ class FakeManager:
 
 manager = FakeManager()
 routes._qr_manager = manager
+middleware.WHITELIST_IPS = set()
 app = FastAPI()
 app.include_router(routes.router)
 app.include_router(credentials.router)
 middleware.register_middleware(app)
 
-async def _request(method, path, *, data=None, headers=None, raw=None, client_ip="127.0.0.1"):
+async def _request(method, path, *, data=None, headers=None, token=TOKEN, raw=None):
     request_headers = {"host":"127.0.0.1:8000"}
+    if token is not None: request_headers["x-auth-token"] = token
     if method != "GET":
-        request_headers.update({"origin":"http://127.0.0.1:8000", "x-spark-qr-request":"1", "content-type":"application/json"})
+        request_headers.update({"origin":"http://127.0.0.1:8000", "x-spark-qr-request":"1", "x-requested-with":"sparkkeeper", "content-type":"application/json"})
     for key,value in (headers or {}).items():
         if value is None: request_headers.pop(key.lower(),None)
         else: request_headers[key.lower()] = value
@@ -122,34 +127,38 @@ async def _request(method, path, *, data=None, headers=None, raw=None, client_ip
     scope={"type":"http","asgi":{"version":"3.0","spec_version":"2.4"},"http_version":"1.1","method":method,
            "scheme":"http","path":route_path,"raw_path":route_path.encode(),"query_string":query.encode(),
            "root_path":"","headers":[(k.encode(),v.encode()) for k,v in request_headers.items()],
-           "client":(client_ip,43210),"server":("127.0.0.1",8000)}
+           "client":("127.0.0.1",43210),"server":("127.0.0.1",8000)}
     async def receive():
         return {"type":"http.request","body":body,"more_body":False}
     req=Request(scope,receive)
     async def endpoint(current):
+        # BaseHTTPMiddleware normally constructs a fresh Request between layers.
+        # Rebuild here so injected scope headers are not hidden by a cached Headers view.
+        current=Request(current.scope,receive)
         response=Response()
+        current_token=current.headers.get('x-auth-token','')
         capability=current.headers.get('x-qr-job-token','')
         try:
             if route_path == BASE+'/start':
-                result=routes.start_qr(current,response,body=data or {})
+                result=routes.start_qr(current,response,body=data or {},token=current_token)
             elif route_path == BASE+'/status':
-                result=routes.qr_status(current,response,job_id=parse_qs(query).get('job_id',[''])[0],job_token=capability)
+                result=routes.qr_status(current,response,job_id=parse_qs(query).get('job_id',[''])[0],job_token=capability,token=current_token)
             elif route_path == BASE+'/image':
-                result=routes.qr_image(current,job_id=parse_qs(query).get('job_id',[''])[0],job_token=capability)
+                result=routes.qr_image(current,job_id=parse_qs(query).get('job_id',[''])[0],job_token=capability,token=current_token)
             elif route_path == BASE+'/verification-image':
-                result=routes.verification_image(current,job_id=parse_qs(query).get('job_id',[''])[0],job_token=capability)
+                result=routes.verification_image(current,job_id=parse_qs(query).get('job_id',[''])[0],job_token=capability,token=current_token)
             elif route_path == BASE+'/verification-action':
-                result=routes.verification_action(current,response,body=data or {},job_token=capability)
+                result=routes.verification_action(current,response,body=data or {},job_token=capability,token=current_token)
             elif route_path == BASE+'/retry-cleanup':
-                result=routes.retry_cleanup_qr(current,response,body=data or {},job_token=capability)
+                result=routes.retry_cleanup_qr(current,response,body=data or {},job_token=capability,token=current_token)
             elif route_path == BASE+'/recover-cleanup':
-                result=routes.recover_cleanup_qr(current,response,body=data or {})
+                result=routes.recover_cleanup_qr(current,response,body=data or {},token=current_token)
             elif route_path in {BASE+'/refresh',BASE+'/cancel'}:
                 handler=routes.refresh_qr if route_path.endswith('/refresh') else routes.cancel_qr
-                result=handler(current,response,body=data or {},job_token=capability)
+                result=handler(current,response,body=data or {},job_token=capability,token=current_token)
             elif route_path in {'/api/upload-state','/api/credentials/upload'}:
                 content=body.split(b'\r\n\r\n',1)[1].rsplit(b'\r\n--',1)[0]
-                result=await credentials.api_upload_state(file=UploadFile(filename='state.json',file=io.BytesIO(content)))
+                result=await credentials.api_upload_state(file=UploadFile(filename='state.json',file=io.BytesIO(content)),token=current_token)
             else:
                 raise AssertionError('unknown test route')
             if isinstance(result,Response): return result
@@ -157,9 +166,8 @@ async def _request(method, path, *, data=None, headers=None, raw=None, client_ip
             return JSONResponse(result,status_code=response.status_code,headers=response_headers)
         except HTTPException as exc:
             return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
-    async def guarded(current):
-        return await middleware.local_request_guard(current,endpoint)
-    result=await middleware.cache_policy(req,guarded)
+    async def cached(current):return await middleware.cache_policy(current,endpoint)
+    result=await middleware.api_origin_guard(req,cached)
     payload=result.body
     response_headers=dict(result.headers)
     try: parsed=json.loads(payload)
@@ -172,7 +180,7 @@ def valid_state():
     return json.dumps({"cookies":[{"name":"sessionid","value":"PRIVATE-STATE-SENTINEL","domain":".douyin.com","path":"/","expires":4102444800}],"origins":[]}).encode()
 def assert_safe(data):
     encoded=json.dumps(data)
-    for value in ("PRIVATE-STATE-SENTINEL","storage_state","cookies",str(cfg.DATA_DIR)):
+    for value in (TOKEN,"PRIVATE-STATE-SENTINEL","storage_state","cookies",str(cfg.DATA_DIR)):
         assert value not in encoded,value
 '''
 
@@ -185,24 +193,55 @@ class QrRouteIntegrationTests(unittest.TestCase):
             env.update({
                 "DATA_DIR": str(folder / "data"), "ENV_FILE_PATH": str(folder / "missing.env"),
                 "INSTANCE_LOCK_PATH": str(folder / "server.pid"), "STATE_FILE_PATH": "",
-                "HOST": "127.0.0.1", "PORT": "8000",
-                "SPARKKEEPER_BACKGROUND_TASKS": "0", "SPARKKEEPER_NO_ROOT_STATE_FALLBACK": "1",
-                "COOKIE_EXTRACT_MODE": "local-client", "QR_PUBLIC_ORIGIN": "",
+                "AUTH_TOKEN": TOKEN, "LOGIN_GATE": "on", "HOST": "127.0.0.1", "PORT": "8000",
+                "URL_ACCESS_TOKEN": "", "URL_PASSWORD_SALT": "", "URL_PASSWORD_HASH": "",
+                "WHITELIST_IPS": "", "QR_PUBLIC_ORIGIN": "", "SPARKKEEPER_BACKGROUND_TASKS": "0",
                 "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1",
             })
             code = PREAMBLE + "\n" + textwrap.dedent(body) + "\nprint('qr-route-isolated-pass')\n"
-            result = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=20)
+            result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("qr-route-isolated-pass", result.stdout)
 
-    def test_local_start_needs_no_management_credentials(self):
+    def test_configured_https_proxy_is_rejected_in_public_edition(self):
         self.isolated("""
-        status,data,headers,_=start()
-        assert status==200
-        assert data['job_token']==JOB_TOKEN
+        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
+        headers={'Host':'console.example.com','Origin':'https://console.example.com',
+                 'X-Forwarded-Proto':'https','X-Real-IP':'198.51.100.7'}
+        assert start(token=None,headers=headers)[0] == 403
+        assert not manager.calls
+        status,data,_,_=start(headers=headers)
+        assert status==403, (status,data)
+        assert not manager.calls
+        """)
+
+    def test_wrong_proxy_protocol_remains_qr_403_with_valid_auth(self):
+        self.isolated("""
+        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
+        headers={'Host':'console.example.com','Origin':'https://console.example.com','X-Forwarded-Proto':'http'}
+        assert start(headers=headers)[0]==403
+        assert not manager.calls
+        auth_service._check_auth(TOKEN)
+        """)
+
+    def test_forwarded_origin_never_trusts_nonlocal_raw_peer(self):
+        self.isolated("""
+        from request_origin import _effective_origin
+        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
+        req=Request({'type':'http','scheme':'http','method':'POST','path':BASE+'/start',
+                     'headers':[(b'host',b'console.example.com'),(b'x-forwarded-proto',b'https'),
+                                (b'x-real-ip',b'127.0.0.1')],
+                     'client':('198.51.100.8',12345),'server':('127.0.0.1',8000)})
+        assert _effective_origin(req) is None
+        """)
+
+    def test_local_qr_start_needs_no_management_password(self):
+        self.isolated("""
+        status,data,headers,_=start(token=None)
+        assert status in (200,202)
+        assert len(manager.calls)==1
         assert 'set-cookie' not in headers
-        assert len(manager.calls)==1 and manager.calls[0][0]=='start'
-        assert_safe(data)
+        assert data['job_token']==JOB_TOKEN
         """)
 
     def test_cleanup_retry_requires_same_origin_capability_and_exact_body(self):
@@ -236,6 +275,7 @@ class QrRouteIntegrationTests(unittest.TestCase):
     def test_recovery_after_reload_requires_local_origin_and_empty_body(self):
         self.isolated("""
         endpoint=BASE+'/recover-cleanup';manager.active=True;manager.cleanup_pending=True
+        assert request('POST',endpoint,data={},token=None,headers={'Origin':'https://evil.example.invalid'})[0]==403
         for bad in ({'Origin':'https://evil.example.invalid'},{'Origin':None},{'X-Spark-QR-Request':None}):
             assert request('POST',endpoint,data={},headers=bad)[0]==403
         assert request('POST',endpoint,data={'job_id':JOB})[0]==400
@@ -310,98 +350,24 @@ class QrRouteIntegrationTests(unittest.TestCase):
         assert not manager.calls
         """)
 
-    def test_non_loopback_peer_cannot_start_or_read_a_job(self):
+    def test_login_gate_off_does_not_disable_qr_origin_guard(self):
         self.isolated("""
-        assert start(client_ip='203.0.113.8')[0]==403
-        assert request('GET',BASE+'/status?job_id='+JOB,client_ip='203.0.113.8',
-                       headers={'X-QR-Job-Token':JOB_TOKEN})[0]==403
-        assert not manager.calls
-        assert start()[0]==200
+        auth_service.LOGIN_GATE=False
+        assert start(token=None,headers={'Origin':'https://evil.example.invalid'})[0] == 403
+        assert start(token=None)[0] in (200,202)
         """)
 
-    def test_forwarded_external_peer_and_cross_site_metadata_are_rejected(self):
+    def test_whitelist_bypass_does_not_disable_qr_origin_guard(self):
         self.isolated("""
-        for headers in ({'X-Real-IP':'203.0.113.8'}, {'X-Forwarded-For':'203.0.113.8'},
-                        {'Forwarded':'for=203.0.113.8'}, {'X-Forwarded-Host':'evil.example.invalid'},
-                        {'Sec-Fetch-Site':'cross-site'}, {'Sec-Fetch-Site':'same-site'}):
-            assert start(headers=headers)[0]==403,headers
-        assert not manager.calls
-        assert start()[0]==200
-        """)
-
-    def test_explicit_public_origin_proxy_keeps_qr_capability_and_origin_guards(self):
-        self.isolated("""
-        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
-        proxy={'Host':'console.example.com','X-Forwarded-Proto':'https',
-               'X-Forwarded-For':'203.0.113.10','Origin':'https://console.example.com'}
-        status,data,headers,_=start(headers=proxy)
-        assert status==200 and data['job_token']==JOB_TOKEN
-        assert 'set-cookie' not in headers
-        assert request('GET',BASE+'/status?job_id='+JOB,headers=proxy)[0]==403
-        protected={**proxy,'X-QR-Job-Token':JOB_TOKEN}
-        assert request('GET',BASE+'/status?job_id='+JOB,headers=protected)[0]==200
-        for change in ({'Origin':'https://other.example.invalid'},
-                       {'Origin':None},{'X-Spark-QR-Request':None}):
-            assert request('POST',BASE+'/refresh',data={'job_id':JOB},
-                           headers={**protected,**change})[0]==403
-        assert request('POST',BASE+'/refresh',data={'job_id':JOB},headers=protected)[0]==200
-        assert start()[0]==200
-        assert start(headers={**proxy,'Host':'console.example.com:443'})[0]==200
-        """)
-
-    def test_public_proxy_rejects_wrong_authority_scheme_and_invalid_forwarding(self):
-        self.isolated("""
-        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
-        proxy={'Host':'console.example.com','X-Forwarded-Proto':'https',
-               'X-Forwarded-For':'203.0.113.10','Origin':'https://console.example.com'}
-        for change in ({'Host':'other.example.invalid'}, {'Host':'console.example.com:80'},
-                       {'X-Forwarded-Proto':'http'}, {'X-Forwarded-Proto':'https,http'},
-                       {'X-Forwarded-Proto':None}, {'X-Forwarded-Host':'other.example.invalid'},
-                       {'X-Forwarded-Host':'console.example.com:444'}, {'Forwarded':'for=203.0.113.10'},
-                       {'X-Forwarded-For':'not-an-ip'}, {'X-Real-IP':'203.0.113.10,127.0.0.1'}):
-            assert start(headers={**proxy,**change})[0]==403,change
-        assert not manager.calls
-        assert start(headers={**proxy,'X-Forwarded-Host':'console.example.com',
-                              'X-Real-IP':'203.0.113.10',
-                              'X-Forwarded-For':'203.0.113.10, 198.51.100.2'})[0]==200
-        """)
-
-    def test_public_proxy_never_trusts_an_external_raw_peer(self):
-        self.isolated("""
-        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
-        proxy={'Host':'console.example.com','X-Forwarded-Proto':'https',
-               'X-Forwarded-For':'127.0.0.1','X-Real-IP':'127.0.0.1',
-               'Origin':'https://console.example.com'}
-        assert start(client_ip='203.0.113.10',headers=proxy)[0]==403
-        assert request('GET',BASE+'/status?job_id='+JOB,client_ip='203.0.113.10',
-                       headers={**proxy,'X-QR-Job-Token':JOB_TOKEN})[0]==403
-        assert not manager.calls
-        """)
-
-    def test_public_origin_nondefault_port_and_invalid_config_fail_closed(self):
-        self.isolated("""
-        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com:8443'
-        proxy={'Host':'console.example.com:8443','X-Forwarded-Proto':'https',
-               'Origin':'https://console.example.com:8443'}
-        for change in ({'Host':'console.example.com'},
-                       {'Origin':'https://console.example.com'},
-                       {'X-Forwarded-Host':'console.example.com:443'}):
-            assert start(headers={**proxy,**change})[0]==403,change
-        assert not manager.calls
-        assert start(headers=proxy)[0]==200
-        calls=len(manager.calls)
-        for invalid in ('https://console.example.com:8443/path',
-                        'https://user:pass@console.example.com:8443',
-                        'https://console.example.com:0'):
-            os.environ['QR_PUBLIC_ORIGIN']=invalid
-            assert start(headers=proxy)[0]==403
-        assert len(manager.calls)==calls
-        assert start()[0]==200
+        middleware.WHITELIST_IPS={'127.0.0.1'}
+        assert start(token=None,headers={'Origin':'https://evil.example.invalid'})[0] == 403
+        assert start(token=None)[0] in (200,202)
         """)
 
     def test_dns_rebinding_host_is_rejected_even_when_origin_matches(self):
         self.isolated("""
-        status=start(headers={'Host':'evil.example.invalid:8000','Origin':'http://evil.example.invalid:8000'})[0]
+        auth_service.LOGIN_GATE=False
+        status=start(token=None,headers={'Host':'evil.example.invalid:8000','Origin':'http://evil.example.invalid:8000'})[0]
         assert status in (400,403),status
         assert not manager.calls
         """)
@@ -422,19 +388,10 @@ class QrRouteIntegrationTests(unittest.TestCase):
         response=start()
         assert response[0] in (200,202),response
         assert not app_common.run_lock.locked()
-        assert str(uuid.UUID(manager.request_id))==manager.request_id
+        assert len(manager.request_id)==64
+        assert TOKEN not in manager.request_id
         assert_safe(response[1])
         assert response[1]['job_token']==JOB_TOKEN
-        """)
-
-    def test_repeated_request_id_keeps_same_canonical_idempotency_key(self):
-        self.isolated("""
-        request_id=str(uuid.uuid4())
-        for value in (request_id,request_id.upper()):
-            status,data,_,_=request('POST',BASE+'/start',data={'request_id':value})
-            assert status==200 and data['job_token']==JOB_TOKEN
-        assert manager.calls==[('start',request_id),('start',request_id)]
-        assert not app_common.run_lock.locked()
         """)
 
     def test_request_id_must_be_uuid(self):

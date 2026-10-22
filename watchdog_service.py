@@ -1,4 +1,4 @@
-"""卡死看门狗：持锁超时即抓栈、告警并硬退出，交由 systemd 拉起。"""
+"""卡死看门狗：同一次持锁任务长期没有进展才告警并退出。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import app_common
 from app_common import logger
 from email_service import _render_template, _send_email, load_email_config
 
-# 任务持锁超过该秒数即判定卡死（正常任务几分钟内必然结束）
+# 同一次持锁任务连续没有可观察进展达到阈值才判定卡死。
 WATCHDOG_STUCK_SECONDS = max(60, int(os.environ.get("WATCHDOG_STUCK_SECONDS", "900")))
 _WATCHDOG_CHECK_INTERVAL = 20
 _watchdog_started = False
@@ -64,27 +64,32 @@ def _watchdog_notify(age: float, stack: str) -> None:
         logger.warning("看门狗：告警邮件发送失败：%s", e)
 
 
+def _watchdog_check_once() -> bool:
+    snapshot = app_common.run_lock.stalled(WATCHDOG_STUCK_SECONDS)
+    if snapshot is None:
+        return False
+    age = time.monotonic() - snapshot.progressed_at
+    logger.critical(
+        "看门狗：当前任务连续 %.0f 秒没有进展（阈值 %s 秒）；抓栈并通知后再次确认",
+        age, WATCHDOG_STUCK_SECONDS,
+    )
+    stack = _watchdog_capture()
+    _watchdog_notify(age, stack)
+    time.sleep(2)
+    # Notification can take time. Do not kill a task that progressed, finished,
+    # or was replaced while diagnostics were being collected.
+    return app_common.run_lock.if_still_stalled(
+        snapshot, WATCHDOG_STUCK_SECONDS, lambda: os._exit(78)
+    )
+
+
 def _watchdog_loop() -> None:
     while True:
         time.sleep(_WATCHDOG_CHECK_INTERVAL)
         try:
-            if not app_common.run_lock.locked() or not app_common._run_started_at:
-                continue
-            age = time.time() - app_common._run_started_at
-            if age < WATCHDOG_STUCK_SECONDS:
-                continue
-            logger.critical(
-                "看门狗：任务已持锁 %.0f 秒（阈值 %s 秒）无响应，判定卡死；"
-                "抓栈、发邮件后退出进程，systemd 将在 5 秒后自动拉起",
-                age, WATCHDOG_STUCK_SECONDS,
-            )
-            stack = _watchdog_capture()
-            _watchdog_notify(age, stack)
-            time.sleep(2)  # 给日志、邮件留落盘时间
-            os._exit(78)   # 硬退出：卡死的线程无法被杀，只能整个进程重启
+            _watchdog_check_once()
         except Exception:
-            # 看门狗自身任何意外都不能让监控停摆
-            pass
+            logger.exception("看门狗检查异常")
 
 
 def _start_watchdog() -> None:
@@ -93,4 +98,4 @@ def _start_watchdog() -> None:
         return
     _watchdog_started = True
     threading.Thread(target=_watchdog_loop, name="watchdog", daemon=True).start()
-    logger.info("看门狗已启动：任务持锁超过 %s 秒将自动重启进程", WATCHDOG_STUCK_SECONDS)
+    logger.info("看门狗已启动：同一任务连续 %s 秒没有进展才判定卡死", WATCHDOG_STUCK_SECONDS)

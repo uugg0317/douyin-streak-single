@@ -42,9 +42,37 @@ def completed_count(result: object) -> int:
     Deferred contacts have yet to complete; system-level entries are excluded.
     A contact appearing in multiple outcome fields is counted only once.
     """
-    return len(_names_for(result, ("ok", "failed", "skipped")))
+    if not isinstance(result, Mapping):
+        return 0
+    keys = set()
+    identified_success_names = set()
+    for item in result.get("ok_entries", []) or []:
+        if isinstance(item, Mapping) and item.get("entry_id"):
+            keys.add(("id", item["entry_id"]))
+            identified_success_names.add(item.get("name"))
+    for field in ("ok", "failed", "skipped"):
+        collection = result.get(field, [])
+        if isinstance(collection, (str, bytes, Mapping)) or not isinstance(collection, Iterable):
+            continue
+        for item in collection:
+            name = item if isinstance(item, str) else item.get("name") if isinstance(item, Mapping) else None
+            if not isinstance(name, str) or not name.strip() or name == "_system":
+                continue
+            key = item.get("entry_id") if isinstance(item, Mapping) else None
+            if key:
+                keys.add(("id", key))
+            elif name not in identified_success_names:
+                keys.add(("name", name))
+    return len(keys)
 
 
 def resolved_contact_names(result: object) -> set[str]:
     """Return ok/failed/skipped/deferred contact keys already accounted for on abort."""
     return _names_for(result, ("ok", "failed", "skipped", "deferred"))
+
+
+def contact_entry_ids(items: object) -> set[str]:
+    if isinstance(items, (str, bytes, bytearray, Mapping)) or not isinstance(items, Iterable):
+        return set()
+    return {item["entry_id"] for item in items if isinstance(item, Mapping)
+            and isinstance(item.get("entry_id"), str) and item["entry_id"]}

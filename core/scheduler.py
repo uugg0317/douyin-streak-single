@@ -5,33 +5,112 @@ from __future__ import annotations
 import logging
 import os
 import random
-import time
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor as SchedulerThreadPoolExecutor
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from .config import load_config
-from .runtime import load_runtime, update_runtime
+from .harvester import creator_map
+from .send_day import business_now
 
 logger = logging.getLogger("douyin-cloud-streak")
 TZ = "Asia/Shanghai"
 
-# 连续失败达到此轮数即熔断暂停（默认 3 轮；定时任务每天一轮，即连挂 3 天才停）
+# 连续失败达到此轮数时升级邮件告警，不再因为历史失败跳过每日发送。
 FAILURE_BREAKER_THRESHOLD = int(os.environ.get("FAILURE_BREAKER_THRESHOLD", "3"))
-# 熔断冷却时长（秒），默认 6 小时；冷却结束自动恢复并清零计数
-FAILURE_BREAKER_COOLDOWN = int(os.environ.get("FAILURE_BREAKER_COOLDOWN", str(6 * 3600)))
 
 _scheduler: BackgroundScheduler | None = None
 _run_func: Callable | None = None
 _harvest_func: Callable | None = None
 _prewarm_func: Callable | None = None
 _session_check_func: Callable | None = None
+_retry_dispatch_lock = threading.RLock()
+_retry_registered: dict[object, str] = {}
+_retry_dispatching: dict[tuple[object, str], datetime] = {}
+_auto_start_lock = threading.RLock()
+_auto_generation = 0
+_auto_context = threading.local()
 
 
-def _fire_run() -> None:
+def auto_start_guard():
+    """Serialize configuration commits with the last automatic-start decision."""
+    return _auto_start_lock
+
+
+def auto_generation() -> int:
+    with _auto_start_lock:
+        return _auto_generation
+
+
+def automatic_run_generation() -> int | None:
+    return getattr(_auto_context, "generation", None)
+
+
+@contextmanager
+def automatic_run_context(generation: int | None = None):
+    previous = automatic_run_generation()
+    _auto_context.generation = auto_generation() if generation is None else generation
+    try:
+        yield
+    finally:
+        _auto_context.generation = previous
+
+
+class _RetryTrackingExecutor(SchedulerThreadPoolExecutor):
+    """Track submission before APScheduler removes its one-shot jobstore row."""
+    def __init__(self):
+        super().__init__(max_workers=1)
+        self._retry_versions = {}
+
+    def submit_job(self, job, run_times):
+        version = job.kwargs.get("queue_version", "")
+        with self._lock:
+            # Keep the executor's existing per-job concurrency guarantee. An
+            # old completion must finish its version cleanup before a new submit.
+            if self._instances[job.id] >= job.max_instances:
+                return super().submit_job(job, run_times)
+            with _retry_dispatch_lock:
+                if not version or _retry_registered.get(self._scheduler) != version:
+                    raise RuntimeError("补发计划已撤销，拒绝派发旧队列")
+                _retry_dispatching[(self._scheduler, version)] = run_times[-1]
+                self._retry_versions[job.id] = version
+            try:
+                return super().submit_job(job, run_times)
+            except BaseException:
+                self._finish_version(job.id)
+                raise
+
+    def _finish_version(self, job_id):
+        version = self._retry_versions.pop(job_id, None)
+        with _retry_dispatch_lock:
+            _retry_dispatching.pop((self._scheduler, version), None)
+
+    def _run_job_success(self, job_id, events):
+        # Also called for misfires, where the user callback never runs.
+        with self._lock:
+            self._finish_version(job_id)
+            super()._run_job_success(job_id, events)
+
+    def _run_job_error(self, job_id, exc, traceback=None):
+        with self._lock:
+            self._finish_version(job_id)
+            super()._run_job_error(job_id, exc, traceback)
+
+
+def retry_is_dispatching(queue_version: str, due_at: datetime | None = None) -> bool:
+    with _retry_dispatch_lock:
+        due = _retry_dispatching.get((_scheduler, queue_version))
+        return bool(due is not None and _retry_registered.get(_scheduler) == queue_version
+                    and (due_at is None or due == due_at))
+
+
+def _fire_run(generation: int | None = None) -> None:
     """真正触发一次发送，并吞掉「上一轮还没跑完」这类正常冲突。
 
     app._start_run 在已有任务时会抛 HTTPException(409)。这是并发保护在正常
@@ -39,43 +118,32 @@ def _fire_run() -> None:
     """
     if not _run_func:
         return
+    if not load_config().get("auto_run_enabled", True):
+        return
+    if generation is not None and generation != auto_generation():
+        return
     try:
-        _run_func()
+        with automatic_run_context(generation):
+            _run_func()
     except Exception as e:
         logger.warning("本次定时发送未启动：%s", e)
 
 
 def _daily_job() -> None:
+    with auto_start_guard():
+        immediate = _prepare_daily_job()
+        generation = auto_generation()
+    if immediate:
+        _fire_run(generation)
+
+
+def _prepare_daily_job() -> bool:
     cfg = load_config()
     if not bool(cfg.get("auto_run_enabled", True)):
         logger.info("自动运行已关闭（auto_run_enabled=false），本次定时任务跳过")
         return
 
-    # ── 熔断：连续失败达阈值则暂停自动发送，冷却期结束自动恢复 ──
-    # 只拦定时任务；手动「立即续火花」走 /api.run 不经此处，仍可强制试一次。
-    # 不改写 config.json 的 auto_run_enabled（那会污染用户配置且无法区分是谁关的），
-    # 暂停状态只存 runtime.json 的 auto_paused_until 时间戳。
-    st = load_runtime()
-    now = time.time()
-    paused_until = float(st.get("auto_paused_until") or 0)
-    if paused_until and now < paused_until:
-        logger.warning(
-            "自动发送处于熔断暂停中，剩余 %.0f 分钟（连续失败 %s 轮）",
-            (paused_until - now) / 60, st.get("consecutive_failures"),
-        )
-        return
-    if paused_until and now >= paused_until:
-        # 冷却结束：清零计数与暂停标记，自动恢复，今天正常尝试一次
-        update_runtime(auto_paused_until=0, consecutive_failures=0)
-        st["consecutive_failures"] = 0  # 同步本地快照，避免下面立即又触发熔断
-        logger.info("熔断冷却期结束，已自动恢复自动发送")
-    if int(st.get("consecutive_failures") or 0) >= FAILURE_BREAKER_THRESHOLD:
-        update_runtime(auto_paused_until=now + FAILURE_BREAKER_COOLDOWN)
-        logger.error(
-            "连续失败 %s 轮已达阈值，暂停自动发送 %s 分钟（手动「立即续火花」仍可用）",
-            st.get("consecutive_failures"), FAILURE_BREAKER_COOLDOWN // 60,
-        )
-        return
+    # 历史连续失败只用于升级告警；当前登录、验证码和限流仍由发送链路检查并停止。
 
     # 注意：不能写 `cfg.get("jitter_minutes") or 30`。
     # 配置里合法的 0（＝不抖动、0 点准时发）是 falsy，会被 or 吞掉变回 30。
@@ -93,13 +161,14 @@ def _daily_job() -> None:
         logger.info("随机延迟 %.0f 秒后开始发送（抖动窗口 %s 分钟）", delay, jitter)
         _scheduler.add_job(
             _fire_run,
-            DateTrigger(run_date=datetime.now() + timedelta(seconds=delay), timezone=TZ),
+            DateTrigger(run_date=business_now() + timedelta(seconds=delay), timezone=TZ),
             id="daily_send_jitter",
             replace_existing=True,
             misfire_grace_time=600,
+            kwargs={"generation": auto_generation()},
         )
-        return
-    _fire_run()
+        return False
+    return True
 
 
 def _prewarm_job() -> None:
@@ -127,7 +196,7 @@ def _session_check_job() -> None:
 
 def background_tasks_enabled() -> bool:
     """Process-only switch for starting a local console without account jobs."""
-    return os.environ.get("SPARKKEEPER_BACKGROUND_TASKS", "1").strip().lower() not in {"0", "false", "off", "no"}
+    return os.environ.get("SPARKKEEPER_BACKGROUND_TASKS", "0").strip().lower() in {"1", "true", "on", "yes"}
 
 
 def configure(
@@ -176,9 +245,22 @@ def _parse_check_time() -> tuple[int, int]:
 
 
 def apply_schedule() -> None:
+    with auto_start_guard():
+        _apply_schedule_locked()
+
+
+def _apply_schedule_locked() -> None:
+    global _auto_generation
+    cfg = load_config()
+    if not cfg.get("auto_run_enabled", True):
+        # Invalidate queued and already-dispatched callbacks before removing jobs.
+        _auto_generation += 1
+        if _scheduler is not None and _scheduler.get_job("daily_send_jitter"):
+            _scheduler.remove_job("daily_send_jitter")
+        from tasks_service import cancel_automatic_retry
+        cancel_automatic_retry()
     if _scheduler is None:
         return
-    cfg = load_config()
     hh, mm = _parse_hhmm(cfg.get("schedule_time", "21:00"))
     _scheduler.add_job(
         _daily_job,
@@ -193,11 +275,11 @@ def apply_schedule() -> None:
     # 浏览器预启动任务：在发送时间前 PREWARM_LEAD_MINUTES 分钟触发，提前启动
     # 浏览器、打开聊天页并等待联系人列表加载完成。
     #
-    # 提前量由环境变量 PREWARM_LEAD_MINUTES 控制（默认 1 分钟；实测冷启动到
-    # 列表就绪仅约 9 秒）。当前设置为 30 分钟：23:30 预启动、00:00 发送。
+    # 提前量由环境变量 PREWARM_LEAD_MINUTES 控制，默认 2 分钟；
+    # 每天 00:00 发送时默认在 23:58 预热，显式环境配置优先。
     if _prewarm_func:
         # 通用计算：发送时刻往前推 PREWARM_LEAD_MINUTES 分钟（自动处理跨小时/跨天）
-        prewarm_lead = max(0, int(os.environ.get("PREWARM_LEAD_MINUTES", "1")))
+        prewarm_lead = max(0, int(os.environ.get("PREWARM_LEAD_MINUTES", "2")))
         prewarm_total = hh * 60 + mm - prewarm_lead
         prewarm_hh = prewarm_total // 60 % 24
         prewarm_mm = prewarm_total % 60
@@ -234,7 +316,8 @@ def apply_schedule() -> None:
 
     # 周级 creator 抖音号采集（默认周一 03:00；off/空 = 关闭）
     day = str(cfg.get("schedule_harvest_day") or "off").strip().lower()
-    if day in {"mon", "tue", "wed", "thu", "fri", "sat", "sun"} and _harvest_func:
+    if (day in {"mon", "tue", "wed", "thu", "fri", "sat", "sun"} and _harvest_func
+            and getattr(creator_map, "implemented", False)):
         _scheduler.add_job(
             _harvest_func,
             CronTrigger(day_of_week=day, hour=3, minute=0, timezone=TZ),
@@ -267,22 +350,53 @@ def next_harvest_time() -> str | None:
     return None
 
 
-def schedule_retry(run_func: Callable, delay_minutes: int = 45) -> None:
+def schedule_retry(run_func: Callable, delay_minutes: int = 45, *,
+                   due_at: datetime | None = None, queue_version: str = "") -> bool:
     if _scheduler is None:
-        return
-    if _scheduler.get_job("retry_send"):
-        return
-    run_at = datetime.now() + timedelta(minutes=delay_minutes)
-    _scheduler.add_job(
-        run_func,
-        DateTrigger(run_date=run_at, timezone=TZ),
-        id="retry_send",
-        replace_existing=True,
-    )
+        return False
+    run_at = due_at if due_at is not None else business_now() + timedelta(minutes=delay_minutes)
+    if due_at is not None and due_at.utcoffset() is None:
+        raise ValueError("补发计划时间必须带时区")
+    options = {}
+    if queue_version:
+        if not getattr(_scheduler, "_spark_retry_executor_ready", False):
+            _scheduler.add_executor(_RetryTrackingExecutor(), alias="retry")
+            _scheduler._spark_retry_executor_ready = True
+        with _retry_dispatch_lock:
+            _retry_registered[_scheduler] = queue_version
+        options["executor"] = "retry"
+    try:
+        _scheduler.add_job(
+            run_func,
+            DateTrigger(run_date=run_at, timezone=TZ),
+            id="retry_send",
+            replace_existing=True,
+            kwargs={"queue_version": queue_version} if queue_version else {},
+            **options,
+        )
+    except BaseException:
+        with _retry_dispatch_lock:
+            if _retry_registered.get(_scheduler) == queue_version:
+                _retry_registered.pop(_scheduler, None)
+        raise
     logger.info("已安排 %s 分钟后自动补发本次失败的好友", delay_minutes)
+    return True
+
+
+def retry_job_matches(queue_version: str, due_at: datetime | None = None) -> bool:
+    """A persisted promise must correspond to the actual one-shot scheduler job."""
+    if _scheduler is None or not queue_version:
+        return False
+    job = _scheduler.get_job("retry_send")
+    return bool(job is not None and job.kwargs.get("queue_version") == queue_version
+                and job.next_run_time is not None
+                and (due_at is None or job.next_run_time == due_at))
 
 
 def cancel_retry() -> None:
+    with _retry_dispatch_lock:
+        version = _retry_registered.pop(_scheduler, None)
+        _retry_dispatching.pop((_scheduler, version), None)
     if _scheduler and _scheduler.get_job("retry_send"):
         _scheduler.remove_job("retry_send")
         logger.info("已取消待执行的补发任务")
@@ -291,5 +405,6 @@ def cancel_retry() -> None:
 def shutdown() -> None:
     global _scheduler
     if _scheduler:
+        cancel_retry()
         _scheduler.shutdown(wait=False)
         _scheduler = None

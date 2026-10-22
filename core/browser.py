@@ -1,9 +1,8 @@
 """共享的 Playwright 浏览器启动器。
 
 统一集成：
-- 反爬对抗参数与真实 Chrome 指纹；
-- playwright_stealth 自动注入（若安装）；
-- 中文环境（zh-CN）与 Asia/Shanghai 时区模拟；
+- 使用已安装 Chromium 的默认用户代理和浏览器行为；
+- 中文环境（zh-CN）与 Asia/Shanghai 时区；
 - 完善的生命周期管理与异常兜底。
 """
 
@@ -26,36 +25,13 @@ if not os.environ.get("DISPLAY"):
 
 _STATE_PATH = DATA_DIR / "state.json"
 
-_CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
-
 _COMMON_ARGS = [
     # 非 root 用户运行时启用 Chromium 原生沙箱（不再 --no-sandbox）
     "--disable-dev-shm-usage",
     "--disable-gpu",
-    "--disable-blink-features=AutomationControlled",
 ]
 
 
-def _apply_stealth(page) -> None:
-    """反自动化指纹处理。
-
-    注意：旧版 playwright_stealth 的 stealth_sync 注入会与抖音自身的反爬脚本
-    冲突（触发 utils/opts is not defined 等 17 个 JS 错误，导致聊天列表不渲染），
-    因此【禁止】回退到旧版 stealth_sync。仅当安装了提供 Stealth 类的新版时才启用，
-    否则不注入——配合自定义 UA / locale / --disable-blink-features 已足够。
-    """
-    try:
-        from playwright_stealth import Stealth  # noqa: F401
-        Stealth().apply_stealth_sync(page)
-    except Exception:
-        # 新版不可用就完全不注入，绝不使用会导致抖音页面崩溃的旧 stealth_sync
-        pass
-
-
-@contextmanager
 def open_browser(
     state_path: Path | str | None = None,
     headless: bool = True,
@@ -75,6 +51,37 @@ def open_browser(
     use_state=False：完全不加载登录态（扫码登录提取通行证时必须用，
     否则会带上过期 Cookie，直接进不了扫码页）。
     """
+    cleanup_state = {}
+    owner = _open_browser(cleanup_state, state_path, headless, use_state, **ctx_kwargs)
+    # The cache retains this owner. Its exit can report individual cleanup
+    # outcomes without retrying an already exhausted generator contextmanager.
+    owner._cleanup_state = cleanup_state
+    return owner
+
+
+def close_browser_resources(p, browser, cleanup_state: dict) -> bool:
+    """Close on the owning thread; strict failures keep unfinished steps retryable."""
+    if not cleanup_state.get("browser_closed"):
+        try:
+            if browser is not None:
+                browser.close()
+            cleanup_state["browser_closed"] = True
+        except Exception as error:
+            logger.debug("浏览器关闭未完成（%s）", type(error).__name__)
+            if cleanup_state.get("strict"):
+                # Keep the driver live so a later attempt can retry browser.close.
+                return False
+    if not cleanup_state.get("driver_stopped"):
+        try:
+            p.stop()
+            cleanup_state["driver_stopped"] = True
+        except Exception as error:
+            logger.debug("浏览器驱动停止未完成（%s）", type(error).__name__)
+    return bool(cleanup_state.get("browser_closed") and cleanup_state.get("driver_stopped"))
+
+
+@contextmanager
+def _open_browser(cleanup_state, state_path, headless, use_state, **ctx_kwargs):
     if not use_state:
         valid_state = None
     elif state_path:
@@ -89,7 +96,6 @@ def open_browser(
         browser = p.chromium.launch(headless=headless, args=_COMMON_ARGS)
         defaults = {
             "viewport": {"width": 1366, "height": 768},
-            "user_agent": _CHROME_UA,
             "locale": "zh-CN",
             "timezone_id": "Asia/Shanghai",
             # 登录态包含完整 Cookie，生产链路必须校验证书，避免 HTTPS 被劫持。
@@ -101,16 +107,7 @@ def open_browser(
 
         context = browser.new_context(**defaults)
         page = context.new_page()
-        _apply_stealth(page)
 
         yield p, browser, context, page
     finally:
-        if browser:
-            try:
-                browser.close()
-            except Exception:
-                pass
-        try:
-            p.stop()
-        except Exception:
-            pass
+        close_browser_resources(p, browser, cleanup_state)

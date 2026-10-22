@@ -1,6 +1,8 @@
 # ── 凭据：绝不入库 ──────────────────────────────────────────────────────────
 .env
 .env.*
+/.env-*
+/..env.tmp.*
 !.env.example
 # 历史版本会把登录态兼容副本写在项目根目录；即使旧文件仍在，也绝不能入库。
 /state.json
@@ -53,6 +55,9 @@ desktop/_build/
 desktop/dist/
 build/
 dist/
+/SOURCE_VERSION.json
+/source-manifest.json
+/test-report.json
 
 # ── 多账号：账号数据目录含登录 Cookie/台账/日志，绝不入库 ────────────────────
 data/accounts/
@@ -64,3 +69,14 @@ data/*.bak-*
 # Local workstation snapshot records do not belong in published source.
 版本说明.txt
 版本与校验清单.json
+
+# Isolated review fixtures, audit outputs and local test subprocess data
+.review-work/
+
+# Local browser caches and diagnostic exports
+/.cache/
+/.config/
+/backups/
+/screenshots/
+/traces/
+*.har

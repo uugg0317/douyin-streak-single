@@ -1,52 +1,92 @@
-"""单实例锁：启动时自检，防旧实例 scheduler 残留重复发送。"""
-
+"""Process-lifetime OS locks; PID files are diagnostic metadata only."""
 from __future__ import annotations
 
+import atexit
 import os
+from pathlib import Path
+import threading
 
 from app_common import PID_PATH, logger
-from core.config import DATA_DIR, atomic_write_text
+from core.config import atomic_write_text
+
+_guard = threading.RLock()
+_held: dict[str, tuple[object, Path]] = {}
 
 
-def _pid_alive(pid: int) -> bool:
-    """检查 PID 对应的进程是否仍在运行（跨平台）。"""
-    if os.name == "nt":  # Windows：os.kill(pid,0) 报 WinError 87，改用 tasklist
-        try:
-            import subprocess
-            r = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                capture_output=True, text=True, timeout=5,
-            )
-            return str(pid) in r.stdout and "python" in r.stdout.lower()
-        except Exception:
-            return False
-    # POSIX
+def _lock(handle) -> None:
+    handle.seek(0)
+    if os.name == 'nt':
+        import msvcrt
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(handle) -> None:
+    handle.seek(0)
+    if os.name == 'nt':
+        import msvcrt
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _remove_own_pid(path: Path) -> None:
     try:
-        os.kill(pid, 0)  # signal 0 = 探测进程是否存在，不实际发信号
-    except ProcessLookupError:
-        return False  # 进程不存在
-    except PermissionError:
-        return True   # 进程存在但无权限发信号
-    except OSError:
-        return False
-    return True
+        if path.read_text(encoding='utf-8').strip() == str(os.getpid()):
+            path.unlink(missing_ok=True)
+    except (OSError, UnicodeError):
+        pass  # Missing diagnostic metadata does not release the separate lock.
+
+
+def _clear_instance_metadata() -> None:
+    """Server stop is not process exit: other worker threads may still be alive."""
+    with _guard:
+        for _, path in _held.values():
+            _remove_own_pid(path)
+
+
+def _release_all() -> None:
+    with _guard:
+        for handle, path in list(_held.values()):
+            try:
+                _remove_own_pid(path)
+                _unlock(handle)
+            except OSError:
+                pass  # Process exit still closes the descriptor and releases it.
+            finally:
+                handle.close()
+        _held.clear()
 
 
 def _acquire_instance_lock() -> None:
-    """若已有活跃实例运行则拒绝启动，避免多实例重复触发发送。"""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if PID_PATH.exists():
+    path = Path(PID_PATH).expanduser().resolve()
+    key = os.path.normcase(str(path))
+    with _guard:
+        if key in _held:
+            atomic_write_text(path, str(os.getpid()))
+            return  # Same process can restart its desktop server.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.with_name(path.name + '.lock')
+        handle = lock_path.open('a+b')
+        os.set_inheritable(handle.fileno(), False)
         try:
-            old_pid = int(PID_PATH.read_text().strip())
-        except (ValueError, OSError):
-            old_pid = None
-        if old_pid and _pid_alive(old_pid):
-            logger.error(
-                "检测到已有 sparkkeeper 实例在运行（PID %s），拒绝启动。"
-                "请先停止旧实例再重试，避免多实例重复发送。",
-                old_pid,
-            )
-            raise SystemExit(f"已有实例在运行（PID {old_pid}），请先停止旧实例")
-        else:
-            logger.info("发现旧 PID 文件但进程已退出（PID %s），可安全接管", old_pid)
-    atomic_write_text(PID_PATH, str(os.getpid()))
+            _lock(handle)
+        except OSError as error:
+            handle.close()
+            logger.error('检测到已有 sparkkeeper 实例在运行，拒绝启动；请先停止旧实例，避免多实例重复发送。')
+            raise SystemExit('已有实例在运行，请先停止旧实例') from error
+        try:
+            atomic_write_text(path, str(os.getpid()))
+        except BaseException:
+            _unlock(handle)
+            handle.close()
+            raise
+        _held[key] = (handle, path)
+        # Never unlink this stable lock file: replacing its inode could permit
+        # another lock on POSIX. The OS closes our handle even after a hard crash.
+
+
+atexit.register(_release_all)

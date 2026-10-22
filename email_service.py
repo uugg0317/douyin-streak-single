@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from app_common import _env, logger, save_env_values
 from core.config import (
@@ -20,6 +21,9 @@ from core.config import (
 )
 
 LEGACY_EMAIL_CONFIG_PATH = DATA_DIR / "email_config.json"
+# 锁顺序：邮箱锁 → 环境文件锁 / 配置锁；后两者不会反向调用邮箱服务。
+# 仅保护配置校验、保存和快照读取，SMTP 网络投递不持有本锁。
+_email_config_lock = threading.RLock()
 
 
 def _redact_legacy_archive(path) -> None:
@@ -37,6 +41,11 @@ def _redact_legacy_archive(path) -> None:
 
 def load_email_config() -> dict:
     """组装邮件配置：连接信息取 .env，告警策略取 config.json。"""
+    with _email_config_lock:
+        return _load_email_config_locked()
+
+
+def _load_email_config_locked() -> dict:
     biz = load_config()
     smtp_user = _env("SMTP_USER")
     try:
@@ -62,10 +71,19 @@ def _pass_looks_valid(p: str) -> bool:
 def save_email_config(raw: dict) -> dict:
     """保存邮件配置：连接/授权码写 .env，告警策略写 config.json。
 
-    smtp_pass 留空或为掩码时保留原值；纯数字/过短的假授权码直接拒绝。
+    连接不变时，smtp_pass 留空或为掩码可保留原值；连接变化必须重新输入实际授权码。
+    重新输入可以与原授权码相同，但仅发送掩码不算重新提供。
     """
-    new_pass = str(raw.get("smtp_pass", "") or "")
-    if new_pass and new_pass != "******" and not _pass_looks_valid(new_pass):
+    with _email_config_lock:
+        return _save_email_config_locked(raw)
+
+
+def _save_email_config_locked(raw: dict) -> dict:
+    current = _load_email_config_locked()
+    new_pass = str(raw.get("smtp_pass", "") or "").strip()
+    masked_pass = bool(new_pass) and set(new_pass) == {"*"}
+    supplied_pass = bool(new_pass) and not masked_pass
+    if supplied_pass and not _pass_looks_valid(new_pass):
         raise ValueError(
             "这不是 SMTP 授权码：授权码通常是 16 位左右的字母组合，"
             "6 位数字是开启服务时的验证码，请勿填入授权码框"
@@ -74,11 +92,13 @@ def save_email_config(raw: dict) -> dict:
     env_updates: dict = {}
     host = str(raw.get("smtp_host", "") or "").strip()
     user = str(raw.get("smtp_user", "") or "").strip()
-    port_raw = str(raw.get("smtp_port", "") or "").strip()
+    port_value = raw.get("smtp_port", "")
+    port_raw = "" if port_value is None else str(port_value).strip()
     if host:
         env_updates["SMTP_HOST"] = host
     if user:
         env_updates["SMTP_USER"] = user
+    port = current["smtp_port"]
     if port_raw:
         try:
             port = int(port_raw)
@@ -86,11 +106,16 @@ def save_email_config(raw: dict) -> dict:
             raise ValueError("SMTP 端口必须是数字")
         if not 1 <= port <= 65535:
             raise ValueError("SMTP 端口必须在 1~65535 之间")
-        env_updates["SMTP_PORT"] = port_raw
-    if new_pass and new_pass != "******":
+        env_updates["SMTP_PORT"] = str(port)
+    connection_changed = (
+        (host or current["smtp_host"]) != current["smtp_host"]
+        or (user or current["smtp_user"]) != current["smtp_user"]
+        or port != current["smtp_port"]
+    )
+    if connection_changed and not supplied_pass:
+        raise ValueError("SMTP 服务器、端口或发信账号发生变化，请重新输入实际授权码后保存")
+    if supplied_pass:
         env_updates["SMTP_PASS"] = new_pass
-    if env_updates:
-        save_env_values(env_updates)
 
     biz_updates: dict = {}
     mail_to = str(raw.get("mail_to", "") or "").strip()
@@ -102,12 +127,15 @@ def save_email_config(raw: dict) -> dict:
         biz_updates["email_subject"] = subject
     if body:
         biz_updates["email_body"] = body
+    # 所有参数与授权码验证完成后才保存，拒绝请求不能部分修改连接或告警策略。
+    if env_updates:
+        save_env_values(env_updates)
     if biz_updates:
         cur = load_config()
         cur.update(biz_updates)
         save_config(cur)
 
-    return load_email_config()
+    return _load_email_config_locked()
 
 
 def migrate_legacy_email_config() -> None:
@@ -117,6 +145,11 @@ def migrate_legacy_email_config() -> None:
     email_config.json.migrated 留档；.env 已有的键不覆盖，无效授权码
     （如误存的 6 位验证码）丢弃。
     """
+    with _email_config_lock:
+        _migrate_legacy_email_config_locked()
+
+
+def _migrate_legacy_email_config_locked() -> None:
     p = LEGACY_EMAIL_CONFIG_PATH
     archive = p.with_name("email_config.json.migrated")
     _redact_legacy_archive(archive)
@@ -187,6 +220,7 @@ def _send_email(cfg: dict, subject: str, body: str) -> None:
     认证失败等非连接错误不重试。
     """
     import smtplib
+    import ssl
     import time
     from email.message import EmailMessage
 
@@ -204,6 +238,7 @@ def _send_email(cfg: dict, subject: str, body: str) -> None:
     msg["To"] = mail_to
     msg.set_content(body)
     port = int(cfg.get("smtp_port", 465))
+    tls_context = ssl.create_default_context()
 
     last_err: Exception | None = None
     for attempt in (1, 2, 3):
@@ -211,17 +246,25 @@ def _send_email(cfg: dict, subject: str, body: str) -> None:
         s = None
         try:
             if port == 465:
-                s = smtplib.SMTP_SSL(smtp_host, port, timeout=15)
+                s = smtplib.SMTP_SSL(smtp_host, port, timeout=15, context=tls_context)
             else:
                 s = smtplib.SMTP(smtp_host, port, timeout=15)
                 s.ehlo()
-                s.starttls()
+                s.starttls(context=tls_context)
             stage = "登录"
             s.login(smtp_user, smtp_pass)
             stage = "发送"
             s.send_message(msg)
             s.quit()
             return
+        except ssl.SSLCertVerificationError:
+            # 证书/主机名不可信时立即停止，不登录、不降级为未校验连接。
+            if s is not None:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+            raise
         except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError,
                 ConnectionError, OSError) as e:
             last_err = e

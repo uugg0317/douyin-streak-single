@@ -1,8 +1,7 @@
-"""Isolated 2.6 UI fixture. Serves only bundled static assets and fake API states.
+"""Isolated 2.8 UI fixture. Serves only bundled static assets and fake API states.
 No application imports, real accounts, network clients, login browsers or files.
 Run: python tests/qr_console_fixture.py --port 8766
 Panel demo: /?panels=1. Changes fake global DATA only; all mutations use LOCK.
-QR 403 demo: /?qr403=1 or --qr-start-403; controls can restore the fake endpoint.
 """
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,14 +13,14 @@ import time
 from urllib.parse import urlsplit, unquote, parse_qs
 ROOT=Path(__file__).resolve().parents[1]
 LOCK=threading.RLock()
-DATA={'status':'idle','image_failure':False,'refresh_failure':False,'start_forbidden':False,'saved':False,
+DATA={'status':'idle','image_failure':False,'refresh_failure':False,'saved':False,
       'credential_saved':False,'session_checked_at':None,'cleanup_complete':True,
       'revision':1,'deadline':0,'checks':[],'qr_status_polls':0,'app_status_polls':0,
       'scenarios':[],'panels':False,'panel_mode':'normal','panel_progress':None,
       'panel_failures':0,'panel_paused_until':0}
 QR=(ROOT/'static/fire-icon.png').read_bytes() # Static placeholder, never a login QR.
 
-BANNER='''<aside aria-label="隔离测试控制" style="position:fixed;bottom:calc(108px + env(safe-area-inset-bottom));right:12px;z-index:99999;background:#fff7ed;border:1px solid #b45309;border-radius:10px;padding:10px;max-width:calc(100vw - 44px);max-height:calc(100dvh - 220px);overflow:auto;font:12px system-ui;color:#78350f"><details><summary style="cursor:pointer;min-height:24px;line-height:24px">隔离模拟 · 不连接抖音</summary><div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px"><button onclick="qa('scanned')">模拟扫码确认</button><button onclick="qa('saving')">模拟保存中</button><button onclick="qa('success')">模拟完成</button><button onclick="qa('start_forbidden')">模拟扫码403</button><button onclick="qa('start_recover')">恢复扫码入口</button><button onclick="qa('refresh_failure')">模拟刷新断网</button><button onclick="qa('image_failure')">模拟图片失败</button><button onclick="qa('image_recover')">恢复图片</button><button onclick="qa('cleanup_pending')">模拟关闭未完成</button></div><p style="margin:8px 0 0;line-height:1.6">先开始扫码，再按顺序推进；也可从等待直接点“模拟完成”检查进度跳步。后台任务始终暂停。</p></details></aside><script>function qa(scenario){return fetch('/__test/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario})});}</script>'''
+BANNER='''<aside aria-label="隔离测试控制" style="position:fixed;bottom:calc(108px + env(safe-area-inset-bottom));right:12px;z-index:99999;background:#fff7ed;border:1px solid #b45309;border-radius:10px;padding:10px;max-width:calc(100vw - 44px);max-height:calc(100dvh - 220px);overflow:auto;font:12px system-ui;color:#78350f"><details><summary style="cursor:pointer;min-height:24px;line-height:24px">隔离模拟 · 不连接抖音</summary><div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px"><button onclick="qa('scanned')">模拟扫码确认</button><button onclick="qa('saving')">模拟保存中</button><button onclick="qa('success')">模拟完成</button><button onclick="qa('refresh_failure')">模拟刷新断网</button><button onclick="qa('image_failure')">模拟图片失败</button><button onclick="qa('image_recover')">恢复图片</button><button onclick="qa('cleanup_pending')">模拟关闭未完成</button></div><p style="margin:8px 0 0;line-height:1.6">先开始扫码，再按顺序推进；也可从等待直接点“模拟完成”检查进度跳步。后台任务始终暂停。</p></details></aside><script>function qa(scenario){return fetch('/__test/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario})});}</script>'''
 
 PANEL_CONTROLS='''<div aria-label="状态面板演示" style="margin-top:12px;padding-top:10px;border-top:1px solid #d4a865"><strong>状态面板演示 · 全部虚构</strong><div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px"><button onclick="qa('panels_sending')">失败＋发送</button><button onclick="qa('panels_cooldown')">模拟冷却</button><button onclick="qa('panels_normal')">普通空闲</button><button onclick="qa('panels_progress')">更新进度</button><button onclick="qa('panels_preparing')">模拟准备中</button><button onclick="qa('panels_off')">关闭面板演示</button></div><p style="margin:8px 0 0;line-height:1.6">只修改假状态，随后由页面状态轮询更新；不会发消息、操作账号或修改凭据。</p></div>'''
 
@@ -52,7 +51,7 @@ def configure_panels(scenario):
 def app_snapshot():
     """The default QR fixture remains idle; panel mode overrides fake UI fields."""
     panels=DATA['panels']
-    return {'version':'2.6','state_file_exists':DATA['credential_saved'],
+    return {'version':'2.8','state_file_exists':DATA['credential_saved'],
             'session_status':'ok' if DATA['credential_saved'] else 'unknown',
             'session_checked_at':DATA['session_checked_at'],
             'running':panels and DATA['panel_mode'] in {'sending','preparing'},
@@ -80,7 +79,6 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK:
             if path=='/':
                 query=parse_qs(request.query)
-                if 'qr403' in query:DATA['start_forbidden']=query['qr403'][0].lower() in {'1','true','yes'}
                 panel_demo=query.get('panels',[''])[0].lower() in {'1','true','yes'}
                 if panel_demo:configure_panels('panels_sending')
                 banner=BANNER.replace('</details>',PANEL_CONTROLS+'</details>') if panel_demo or DATA['panels'] else BANNER
@@ -89,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
                 file=(ROOT/path.lstrip('/')).resolve()
                 if not file.is_relative_to((ROOT/'static').resolve()) or not file.is_file():return self.reply({},404)
                 return self.reply(file.read_bytes(),ctype=mimetypes.guess_type(str(file))[0] or 'application/octet-stream')
-            if path=='/api/health':return self.reply({'ok':True,'version':'2.6'})
+            if path=='/api/health':return self.reply({'ok':True,'version':'2.8'})
             if path=='/api/status':
                 DATA['app_status_polls']+=1
                 return self.reply(app_snapshot())
@@ -114,8 +112,6 @@ class Handler(BaseHTTPRequestHandler):
                 scenario=body.get('scenario')
                 DATA['scenarios'].append(scenario)
                 if configure_panels(scenario):pass
-                elif scenario=='start_forbidden':DATA['start_forbidden']=True
-                elif scenario=='start_recover':DATA['start_forbidden']=False
                 elif scenario=='refresh_failure':DATA['refresh_failure']=True
                 elif scenario=='image_failure':DATA['image_failure']=True;DATA['revision']+=1
                 elif scenario=='image_recover':DATA['image_failure']=False
@@ -126,7 +122,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply({'ok':True})
             DATA['checks'].append(path)
             if path=='/api/credentials/qr/start':
-                if DATA['start_forbidden']:return self.reply({'detail':'外部扫码入口需要配置 QR_PUBLIC_ORIGIN'},403)
                 if DATA['status']=='cleanup_pending':return self.reply({'detail':'上一任务仍在等待清理'},409)
                 DATA.update(status='waiting',saved=False,cleanup_complete=False,deadline=time.time()+300);return self.reply(snapshot())
             if path=='/api/credentials/qr/recover-cleanup':
@@ -140,10 +135,10 @@ class Handler(BaseHTTPRequestHandler):
                 if DATA['status']!='cleanup_pending':DATA.update(status='cancelled',cleanup_complete=True)
                 return self.reply(snapshot())
             if path=='/api/credentials/qr/retry-cleanup':mark_saved();DATA.update(status='success',cleanup_complete=True);return self.reply(snapshot())
+            if path=='/api/auth/logout':return self.reply({'ok':True})
             return self.reply({'detail':'隔离环境不执行此操作'},400)
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8766);parser.add_argument('--qr-start-403',action='store_true');args=parser.parse_args()
-    DATA['start_forbidden']=args.qr_start_403
+    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8766);args=parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('Isolated QR UI fixture on port',args.port,flush=True)
     try:server.serve_forever()

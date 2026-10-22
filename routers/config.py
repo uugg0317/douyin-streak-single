@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Header
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
+from auth_service import _check_auth
 from core import scheduler
-from core.config import DEFAULT_CONFIG, load_config, save_config
+from core.config import DEFAULT_CONFIG, LOCKED_FIELDS, LockedConfigChange, load_config, save_config
 
 router = APIRouter()
 
@@ -35,21 +37,30 @@ def _reject_unknown_config_keys(raw_cfg: dict) -> None:
 
 
 @router.get("/api/config")
-def api_config() -> dict:
-    return load_config()
+def api_config(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    cfg = load_config()
+    return {**cfg, "locked_fields": list(LOCKED_FIELDS), "effective_config": cfg}
 
 
 @router.put("/api/config")
 @router.post("/api/config")
-def api_config_save(body: dict = Body(...)) -> dict:
+def api_config_save(body: dict = Body(...), token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
     raw_cfg = body.get("config") if isinstance(body, dict) and "config" in body and isinstance(body["config"], dict) else body
     if not isinstance(raw_cfg, dict):
         raise HTTPException(status_code=400, detail="配置体必须是 JSON 对象")
     _reject_unknown_config_keys(raw_cfg)
     _reject_unimplemented_switches(raw_cfg)
     try:
-        cfg = save_config(raw_cfg)
+        with scheduler.auto_start_guard():
+            cfg = save_config(raw_cfg, reject_locked_changes=True)
+            scheduler.apply_schedule()
+    except LockedConfigChange as error:
+        return JSONResponse(status_code=400, content={
+            "detail": str(error), "locked_fields": list(LOCKED_FIELDS),
+            "changed_locked_fields": error.changed_fields, "effective_config": error.effective_config,
+        })
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    scheduler.apply_schedule()
-    return {"ok": True, "config": cfg}
+    return {"ok": True, "config": cfg, "locked_fields": list(LOCKED_FIELDS), "effective_config": cfg}

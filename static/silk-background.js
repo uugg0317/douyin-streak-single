@@ -10,14 +10,22 @@
   let canvas = null, gl = null, program = null, buffer = null, vertexShader = null, fragmentShader = null;
   let timeUniform = null, aspectUniform = null, widthUniform = null, heightUniform = null;
   let initialized = false, destroyed = false, contextLost = false, available = false;
-  let enabled = true, inputPaused = false, mobile = false, targetFps = 120;
+  let enabled = true, inputPaused = false, mobile = false, targetFps = 60;
   let raf = null, resizeTimer = null, lastTick = null, drawBudget = 0, sceneTime = 0;
   let fpsStartedAt = null, fpsDraws = 0, lastEventKey = '';
+  // Preserve the shader's appearance; spend fewer pixels when the page cannot
+  // keep up. 120 Hz is earned by measured headroom, not forced on every desktop.
+  const QUALITY_SCALES = [1, .75, .5, .35];
+  let qualityLevel = 0, stableWindows = 0, highRefreshWindows = 0;
+  let focused = typeof document.hasFocus !== 'function' || document.hasFocus();
+  let promotionCooldownMs = 0, recoveryCooldownMs = 0, qualityWasRaised = false;
+  let cadence = {elapsed: 0, samples: 0, slow: 0, fast: 0};
   try { enabled = localStorage.getItem(PREFERENCE_KEY) !== 'off'; } catch (_) {}
 
   const stats = {
-    frames: 0, rafTicks: 0, sceneTime: 0, observedFps: 0, targetFps: 120,
+    frames: 0, rafTicks: 0, sceneTime: 0, observedFps: 0, targetFps: 60,
     pixelWidth: 0, pixelHeight: 0, pixelRatio: 0, mobile: false,
+    qualityLevel: 0, frameIntervalMs: 0,
     enabled, running: false, reducedMotion: !!reduceQuery?.matches,
     hidden: !!document.hidden, inputPaused: false, available: false, contextLost: false
   };
@@ -176,6 +184,8 @@
     canvas.setAttribute('data-silk-observed-fps', String(stats.observedFps));
     canvas.setAttribute('data-silk-scene-time', String(Math.round(sceneTime * 1000) / 1000));
     canvas.setAttribute('data-silk-pixels', stats.pixelWidth + 'x' + stats.pixelHeight);
+    canvas.setAttribute('data-silk-quality-level', String(qualityLevel));
+    canvas.setAttribute('data-silk-frame-interval-ms', String(stats.frameIntervalMs));
   }
 
   function announce() {
@@ -229,7 +239,7 @@
   function createRenderer() {
     try {
       gl = canvas.getContext('webgl', {alpha: false, antialias: false, depth: false, stencil: false,
-        preserveDrawingBuffer: true, powerPreference: mobile ? 'low-power' : 'high-performance'});
+        preserveDrawingBuffer: false, powerPreference: mobile ? 'low-power' : 'high-performance'});
       if (!gl) return false;
       const precision = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
       const fragment = precision?.precision > 0 ? fragmentSource : fragmentSource.replace('precision highp float;', 'precision mediump float;');
@@ -267,18 +277,25 @@
     if (!canvas || destroyed) return;
     const width = Math.max(1, Math.round(canvas.clientWidth || window.innerWidth || 1));
     const height = Math.max(1, Math.round(canvas.clientHeight || window.innerHeight || 1));
-    mobile = mobileQuery ? mobileQuery.matches : width <= 768;
-    targetFps = mobile ? 30 : 120;
-    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, mobile ? 0.8 : 1.25));
-    const maxPixels = mobile ? 460800 : 1800000;
+    const nextMobile = mobileQuery ? mobileQuery.matches : width <= 768;
+    if (nextMobile !== mobile) {
+      mobile = nextMobile;
+      targetFps = mobile ? (qualityLevel >= 2 ? 20 : 30) : (qualityLevel >= 2 ? 30 : 60);
+    }
+    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, mobile ? 0.8 : 1));
+    const maxPixels = mobile ? 230400 : 720000;
     const maxWidth = mobile ? 640 : 1920;
     const maxHeight = mobile ? 960 : 1440;
-    const scale = Math.min(dpr, maxWidth / width, maxHeight / height, Math.sqrt(maxPixels / (width * height)));
-    canvas.width = Math.max(1, Math.floor(width * scale));
-    canvas.height = Math.max(1, Math.floor(height * scale));
+    const scale = Math.min(dpr, maxWidth / width, maxHeight / height, Math.sqrt(maxPixels / (width * height))) * QUALITY_SCALES[qualityLevel];
+    const pixelWidth = Math.max(1, Math.floor(width * scale));
+    const pixelHeight = Math.max(1, Math.floor(height * scale));
+    // Reassigning even the same dimensions clears/reallocates the WebGL buffer.
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
     stats.pixelWidth = canvas.width;
     stats.pixelHeight = canvas.height;
     stats.pixelRatio = Math.min(canvas.width / width, canvas.height / height);
+    stats.qualityLevel = qualityLevel;
     if (available) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.useProgram(program);
@@ -313,6 +330,62 @@
     return initialized && !destroyed && available && !contextLost && enabled && !inputPaused && !document.hidden && !reduceQuery?.matches;
   }
 
+  function resetCadence() {
+    cadence = {elapsed: 0, samples: 0, slow: 0, fast: 0};
+    stableWindows = 0;
+    highRefreshWindows = 0;
+  }
+
+  function adaptToCadence(delta) {
+    // Edge may throttle an occluded window while document.hidden stays false.
+    // Do not mistake that power-saving cadence for an overloaded renderer.
+    if (!focused || !(delta > 0)) return false;
+    promotionCooldownMs = Math.max(0, promotionCooldownMs - delta);
+    recoveryCooldownMs = Math.max(0, recoveryCooldownMs - delta);
+    cadence.elapsed += delta;
+    cadence.samples++;
+    if (delta > 25) cadence.slow++;
+    if (delta <= 10) cadence.fast++;
+    if (cadence.elapsed < 1500 || cadence.samples < 8) return false;
+    const average = cadence.elapsed / cadence.samples;
+    const slowRatio = cadence.slow / cadence.samples;
+    const highRefresh = cadence.fast / cadence.samples >= .8;
+    stats.frameIntervalMs = Math.round(average * 100) / 100;
+    const oldLevel = qualityLevel, oldFps = targetFps;
+    if (average > 25 || slowRatio > .12) {
+      if (qualityWasRaised) recoveryCooldownMs = 30000;
+      qualityWasRaised = false;
+      qualityLevel = Math.min(QUALITY_SCALES.length - 1, qualityLevel + 1);
+      targetFps = mobile ? (qualityLevel >= 2 ? 20 : 30) : (qualityLevel >= 2 ? 30 : 60);
+      stableWindows = 0;
+      highRefreshWindows = 0;
+    } else if (average <= 18 && slowRatio <= .04) {
+      stableWindows++;
+      highRefreshWindows = highRefresh ? Math.min(3, highRefreshWindows + 1) : 0;
+      if (stableWindows >= 3 && recoveryCooldownMs <= 0) {
+        if (qualityLevel > 0) qualityWasRaised = true;
+        qualityLevel = Math.max(0, qualityLevel - 1);
+        targetFps = mobile ? (qualityLevel >= 2 ? 20 : 30)
+          : qualityLevel >= 2 ? 30 : qualityLevel === 0 && highRefreshWindows >= 3 && promotionCooldownMs <= 0 ? 120 : 60;
+        stableWindows = 0;
+      }
+    } else {
+      stableWindows = 0;
+      highRefreshWindows = 0;
+    }
+    if (!mobile && qualityLevel === 0 && highRefreshWindows >= 3 && promotionCooldownMs <= 0) targetFps = 120;
+    // A 60/90 Hz display, battery throttling or compositor cannot present 120.
+    if (targetFps > 60 && !highRefresh) targetFps = 60;
+    if (oldFps === 120 && targetFps < 120) promotionCooldownMs = 30000;
+    cadence = {elapsed: 0, samples: 0, slow: 0, fast: 0};
+    if (oldLevel !== qualityLevel || oldFps !== targetFps) {
+      measureCanvas();
+      return true;
+    }
+    publishMeasurements();
+    return false;
+  }
+
   function stopLoop() {
     if (raf !== null) cancelAnimationFrame(raf);
     raf = null;
@@ -321,6 +394,7 @@
     fpsStartedAt = null;
     fpsDraws = 0;
     stats.observedFps = 0;
+    resetCadence();
     publishMeasurements();
   }
 
@@ -328,12 +402,14 @@
     raf = null;
     if (!canRun()) { announce(); return; }
     stats.rafTicks++;
-    const delta = lastTick === null ? 0 : Math.max(0, Math.min(50, timestamp - lastTick));
+    const rawDelta = lastTick === null ? 0 : Math.max(0, timestamp - lastTick);
+    const delta = Math.min(50, rawDelta);
     lastTick = timestamp;
     sceneTime += delta / 1000;
     drawBudget += delta;
+    const qualityChanged = adaptToCadence(rawDelta);
     const interval = 1000 / targetFps;
-    if (drawBudget + 0.01 >= interval) {
+    if (qualityChanged || drawBudget + 0.01 >= interval) {
       const intervals = Math.max(1, Math.floor((drawBudget + 0.01) / interval));
       drawBudget = Math.max(0, drawBudget - intervals * interval);
       render(timestamp);
@@ -341,6 +417,7 @@
     raf = requestAnimationFrame(tick);
     stats.running = true;
     stats.sceneTime = sceneTime;
+    if (qualityChanged) announce();
   }
 
   function syncLoop() {
@@ -356,6 +433,7 @@
   function resizeNow() {
     resizeTimer = null;
     if (destroyed) return;
+    resetCadence();
     measureCanvas();
     render();
     syncLoop();
@@ -390,10 +468,13 @@
     canvas.style.pointerEvents = 'none';
     canvas.style.background = 'radial-gradient(ellipse at 68% 32%, #4b3920 0%, #1b140b 32%, #060505 72%)';
     mobile = mobileQuery ? mobileQuery.matches : (window.innerWidth || 0) <= 768;
+    targetFps = mobile ? 30 : 60;
     createRenderer();
     measureCanvas();
     render();
     listen(window, 'resize', scheduleResize, {passive: true});
+    listen(window, 'blur', () => { focused = false; lastTick = null; resetCadence(); });
+    listen(window, 'focus', () => { focused = true; lastTick = null; resetCadence(); });
     listen(document, 'visibilitychange', () => {
       if (document.hidden) { clearTimeout(resizeTimer); resizeTimer = null; }
       else { measureCanvas(); render(); }

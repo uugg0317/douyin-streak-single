@@ -17,9 +17,15 @@ _ROOT = Path(_SANDBOX.name)
 os.environ["DATA_DIR"] = str(_ROOT / "data")
 os.environ["ENV_FILE_PATH"] = str(_ROOT / "missing.env")
 os.environ["INSTANCE_LOCK_PATH"] = str(_ROOT / "server.pid")
-os.environ["HOST"] = "127.0.0.1"
+os.environ["LOGIN_GATE"] = "on"
+os.environ["PORT"] = "8000"
+os.environ["AUTH_TOKEN"] = "unit-test-token-that-is-long-enough-123"
+os.environ["URL_ACCESS_TOKEN"] = ""
+os.environ["URL_PASSWORD_SALT"] = ""
+os.environ["URL_PASSWORD_HASH"] = ""
 
 import app_common  # noqa: E402
+from auth_service import AUTH_TOKEN, _check_auth  # noqa: E402
 from core import ledger  # noqa: E402
 from core.config import load_config, save_config  # noqa: E402
 from core.runtime import load_runtime, update_runtime  # noqa: E402
@@ -57,31 +63,10 @@ def _request(path: str, method: str = "GET", scheme: str = "http") -> Request:
     })
 
 
-class LocalConsoleBoundaryTests(unittest.TestCase):
-    def test_local_bind_accepts_loopback_and_rejects_public_interfaces(self) -> None:
-        from ip_guard import _check_local_bind
-        for host in ("127.0.0.1", "localhost", "::1"):
-            _check_local_bind(host)
-        for host in ("0.0.0.0", "::", "192.0.2.10", "example.com"):
-            with self.assertRaises(SystemExit):
-                _check_local_bind(host)
-
-    def test_local_console_routes_have_no_management_login(self) -> None:
-        import app
-        paths = set(app.app.openapi()["paths"])
-        self.assertFalse(any(path.startswith("/api/auth/") for path in paths))
-        self.assertIn("/api/credentials/qr/start", paths)
-
-    def test_avatar_proxy_still_rejects_untrusted_upstream_without_network(self) -> None:
-        with self.assertRaises(HTTPException) as caught:
-            api_avatar(url="http://127.0.0.1/private")
-        self.assertEqual(caught.exception.status_code, 400)
-
-
 class ReliabilityTests(unittest.TestCase):
     def test_retry_names_merge_deferred_and_failed_in_order(self) -> None:
         result = {
-            "failed": [{"name": "甲"}, {"name": "_system"}, {"name": "乙"}],
+            "failed": [{"name": "甲", "retryable": True}, {"name": "_system"}, {"name": "乙", "retryable": True}],
             "deferred": [{"name": "乙"}, {"name": "丙"}],
         }
         self.assertEqual(_collect_retry_names(result), ["甲", "乙", "丙"])
@@ -133,7 +118,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertTrue(app_common.run_lock.acquire(blocking=False))
         try:
             with self.assertRaises(HTTPException) as caught:
-                api_reset_running()
+                api_reset_running(token=AUTH_TOKEN)
             self.assertEqual(caught.exception.status_code, 409)
             self.assertTrue(app_common.run_lock.locked())
         finally:
@@ -204,10 +189,10 @@ class StatePathTests(unittest.TestCase):
 
 
 class LocalBackgroundModeTests(unittest.TestCase):
-    def test_background_switch_defaults_on_and_recognizes_disabled_values(self):
+    def test_background_switch_defaults_off_and_requires_opt_in(self):
         from core import scheduler
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(scheduler.background_tasks_enabled())
+            self.assertFalse(scheduler.background_tasks_enabled())
         for value in ("0", "false", "off", "no"):
             with mock.patch.dict(os.environ, {"SPARKKEEPER_BACKGROUND_TASKS": value}):
                 self.assertFalse(scheduler.background_tasks_enabled())
@@ -218,7 +203,7 @@ class LocalBackgroundModeTests(unittest.TestCase):
             async with app.lifespan(app.app):
                 pass
         with mock.patch.dict(os.environ, {"SPARKKEEPER_BACKGROUND_TASKS": "0"}), \
-             mock.patch.object(app, "_check_local_bind"), \
+             mock.patch.object(app, "_check_auth_config"), \
              mock.patch.object(app, "_acquire_instance_lock"), \
              mock.patch.object(app, "migrate_legacy_email_config") as migration, \
              mock.patch.object(app.scheduler, "configure") as configure, \

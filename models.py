@@ -1,6 +1,7 @@
 """请求体 Pydantic 模型。"""
 
 from __future__ import annotations
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -23,6 +24,8 @@ class RunBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dry: bool | None = None
     dry_run: bool | None = None
+    force: bool = False
+    expected_ledger_version: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def _require_dry_flag(self) -> "RunBody":
@@ -39,6 +42,8 @@ class LedgerBody(BaseModel):
 class SelectionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selected_names: list[str] = Field(default_factory=list)
+    selected_ids: list[str] = Field(default_factory=list)
+    confirm_clear: bool = Field(default=False, strict=True)
 
 
 class EmailConfigBody(BaseModel):
@@ -54,9 +59,26 @@ class EmailConfigBody(BaseModel):
 
 class DeleteFriendBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    display_name: str
+    display_name: str = ""
+    entry_id: str = ""
 
 
 class BatchDeleteBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     display_names: list[str] = Field(default_factory=list)
+    entry_ids: list[str] = Field(default_factory=list)
+
+
+class IdentityDecisionBody(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    old_entry_id: str = Field(min_length=32, max_length=32, pattern=r'^[0-9a-f]{32}$')
+    new_entry_id: str = Field(min_length=32, max_length=32, pattern=r'^[0-9a-f]{32}$')
+    action: Literal['confirm','different']
+    expected_ledger_version: str = Field(min_length=1,max_length=128)
+
+
+class StreakDecisionBody(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    entry_id: str = Field(min_length=32,max_length=32,pattern=r'^[0-9a-f]{32}$')
+    action: Literal['accept','keep']
+    expected_ledger_version: str = Field(min_length=1,max_length=128)

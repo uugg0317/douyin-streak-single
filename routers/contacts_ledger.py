@@ -6,10 +6,11 @@ import urllib.request
 from urllib.parse import urlparse
 
 import app_common
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from fastapi import HTTPException
 from fastapi import Response
 
+from auth_service import _check_auth
 from core import automation, ledger
 from core.runtime import load_harvest_last, load_runtime
 from models import (
@@ -17,50 +18,101 @@ from models import (
     DeleteFriendBody,
     LedgerBody,
     SelectionBody,
+    IdentityDecisionBody,
+    StreakDecisionBody,
 )
 from tasks_service import _start_fetch_contacts, _start_harvest_creator
+
+def _identity_call(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except ledger.IdentityConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+
 
 router = APIRouter()
 
 
+@router.post('/api/ledger/streak-decision')
+def api_streak_decision(body: StreakDecisionBody, token: str = Header(default='',alias='X-Auth-Token')) -> dict:
+    _check_auth(token)
+    if not app_common.run_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409,detail='已有任务在运行，暂不能确认火花读数')
+    try:return ledger.review_streak(body.entry_id,body.action,body.expected_ledger_version)
+    except (ledger.IdentityConflict,ledger.LedgerVersionConflict) as error:
+        raise HTTPException(status_code=409,detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=503,detail='台账保存失败，请刷新核对后再试') from None
+    finally:app_common.run_lock.release()
+
+
+@router.post('/api/ledger/identity-decision')
+def api_identity_decision(body: IdentityDecisionBody, token: str = Header(default='', alias='X-Auth-Token')) -> dict:
+    _check_auth(token)
+    if not app_common.run_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail='已有任务在运行，暂不能改变好友身份')
+    try:
+        return ledger.review_identity(body.old_entry_id, body.new_entry_id, body.action, body.expected_ledger_version)
+    except (ledger.IdentityConflict, ledger.LedgerVersionConflict) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=503, detail='台账保存失败，身份关联未完成，请刷新后重试') from None
+    finally:
+        app_common.run_lock.release()
+
+
 @router.get("/api/contacts")
-def api_contacts() -> dict:
+def api_contacts(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
     rt = load_runtime()
     return {
         "contacts": rt.get("contacts", []),
         "contacts_at": rt.get("contacts_at"),
+        "contacts_capture": rt.get('contacts_capture'),
         "contacts_error": rt.get("contacts_error"),
+        "contacts_job_id": rt.get("contacts_job_id"),
+        "contacts_job_status": rt.get("contacts_job_status", "idle"),
         "fetching": app_common.contacts_fetching,
     }
 
 
 @router.post("/api/contacts/fetch")
-def api_contacts_fetch() -> dict:
-    _start_fetch_contacts()
-    return {"ok": True, "started": True}
+def api_contacts_fetch(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    job_id = _start_fetch_contacts()
+    return {"ok": True, "started": True, "job_id": job_id}
 
 
 @router.post("/api/sync")
-def api_sync() -> dict:
+def api_sync(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
     """与前端同步接口对齐"""
-    _start_fetch_contacts()
-    return {"ok": True, "started": True}
+    _check_auth(token)
+    job_id = _start_fetch_contacts()
+    return {"ok": True, "started": True, "job_id": job_id}
 
 
 @router.get("/api/ledger")
-def api_ledger() -> dict:
+def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
     rt = load_runtime()
-    entries = ledger.load_ledger()
+    snapshot = ledger.ledger_snapshot()
+    entries = [{**entry,**ledger.streak_confirmation_age(entry)} for entry in snapshot["entries"]]
     contacts = []
     for e in entries:
         name = e.get("display_name") or e.get("nickname") or ""
         spark = int(e.get("streak_days") or e.get("spark_days") or 0)
         contacts.append({
+            "entry_id": e.get("entry_id"),
+            "identity_ambiguous": bool(e.get("identity_ambiguous")),
             "display_name": name,
             "nickname": name,
             "avatar": e.get("avatar") or "",
             "streak_days": spark,
             "spark_days": spark,
+            **{key:e.get(key) for key in ('streak_status','streak_source','streak_seen_at','streak_confirmed_at','streak_label')},
+            **{key:e.get(key) for key in ('streak_confirmed_date','streak_unconfirmed_days','streak_may_be_stale')},
+            **{key:e.get(key) for key in ('streak_suspect_value','streak_suspect_since','streak_suspect_count','streak_reset_dismissed_until','streak_previous_days','streak_reset_accepted_at')},
+            **{key:e.get(key) for key in ('observation_status','observation_at','last_capture_complete','identity_review_pending','rename_candidates','send_block_reason')},
             "selected": bool(e.get("selected", False)),
             # last_status 取真实结果，失败也会写 last_sent_at，不能据此判成功
             "last_status": e.get("last_status") or ("success" if e.get("last_sent_at") else "pending"),
@@ -69,14 +121,18 @@ def api_ledger() -> dict:
     b_daily = rt.get("b_channel_daily") or {}
     return {
         "entries": entries,
+        "ledger_version": snapshot["ledger_version"],
         "contacts": contacts,
         "selected_count": sum(1 for e in entries if e.get("selected")),
+        "contacts_capture": rt.get('contacts_capture'),
         "pending_send": [
-            {"display_name": e["display_name"], "send_channel": e["send_channel"]}
-            for e in automation.compute_pending()
+            {"entry_id": e.get("entry_id"), "display_name": e["display_name"], "send_channel": e["send_channel"]}
+            for e in automation.compute_pending(selected_snapshot=[e for e in entries if e.get("selected")])
         ],
         "contacts_at": rt.get("contacts_at"),
         "contacts_error": rt.get("contacts_error"),
+        "contacts_job_id": rt.get("contacts_job_id"),
+        "contacts_job_status": rt.get("contacts_job_status", "idle"),
         "fetching": app_common.contacts_fetching,
         "harvesting": app_common.harvesting,
         "harvest_last": load_harvest_last(),
@@ -88,48 +144,48 @@ def api_ledger() -> dict:
 
 
 @router.post("/api/ledger/selection")
-def api_ledger_selection(body: SelectionBody) -> dict:
-    """一键保存选中的好友列表。安全红线：拒绝空列表（会清空勾选致静默停发）。"""
-    if not body.selected_names:
-        raise HTTPException(
-            status_code=400,
-            detail="selected_names 不能为空；该操作会清空全部勾选，已被拒绝",
-        )
-    selected_set = set(body.selected_names or [])
+def api_ledger_selection(body: SelectionBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    if body.confirm_clear:
+        if body.selected_names or body.selected_ids:
+            raise HTTPException(status_code=400, detail="确认清空不能同时提交勾选名单，请刷新后重试")
+        return {"ok": True, **ledger.clear_selection()}
+    if not body.selected_names and not body.selected_ids:
+        raise HTTPException(status_code=400, detail="selected_names / selected_ids 不能为空；清空全部勾选请使用确认清空名单操作")
     entries = ledger.load_ledger()
-    changes = []
-    for e in entries:
-        name = e.get("display_name") or e.get("nickname")
-        if name:
-            changes.append({
-                "display_name": name,
-                "selected": name in selected_set
-            })
-    stats = ledger.set_selected(changes)
-    return {"ok": True, **stats}
+    ids = set(body.selected_ids)
+    for key in ids:
+        if ledger.resolve_entry(entries, entry_id=key) is None:
+            raise HTTPException(status_code=409, detail="好友编号不存在，请刷新")
+    for name in body.selected_names:
+        target = _identity_call(ledger.resolve_entry, entries, display_name=name)
+        if target is None:
+            raise HTTPException(status_code=409, detail="好友不存在，请刷新")
+        ids.add(target["entry_id"])
+    changes = [{"entry_id": e["entry_id"], "display_name": e["display_name"], "selected": e["entry_id"] in ids} for e in entries]
+    return {"ok": True, **_identity_call(ledger.set_selected, changes)}
 
 
 @router.post("/api/ledger/delete")
-def api_ledger_delete(body: DeleteFriendBody) -> dict:
-    """删除单个好友台账条目"""
-    name = (body.display_name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="display_name 不能为空")
-    ok = ledger.remove_entry(name)
-    return {"ok": ok, "deleted": ok, "display_name": name}
+def api_ledger_delete(body: DeleteFriendBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    name, key = body.display_name.strip(), body.entry_id.strip()
+    if not name and not key:
+        raise HTTPException(status_code=400, detail="entry_id / display_name 不能为空")
+    ok = _identity_call(ledger.remove_entry, name, entry_id=key)
+    return {"ok": ok, "deleted": ok, "display_name": name, "entry_id": key}
 
 
 @router.post("/api/ledger/batch-delete")
-def api_ledger_batch_delete(body: BatchDeleteBody) -> dict:
-    """批量删除勾选的好友台账条目"""
-    names = [n.strip() for n in (body.display_names or []) if n.strip()]
-    if not names:
-        raise HTTPException(status_code=400, detail="display_names 不能为空")
-    deleted = 0
-    for name in names:
-        if ledger.remove_entry(name):
-            deleted += 1
-    return {"ok": True, "deleted": deleted, "requested": len(names)}
+def api_ledger_batch_delete(body: BatchDeleteBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    keys = set(key.strip() for key in body.entry_ids if key.strip())
+    names = [name.strip() for name in body.display_names if name.strip()]
+    if not keys and not names:
+        raise HTTPException(status_code=400, detail="entry_ids / display_names 不能为空")
+    # Identity resolution, intent protection and the single write share the
+    # ledger mutation lock; another worker cannot create an intent in between.
+    return {"ok": True, **_identity_call(ledger.remove_entries, entry_ids=keys, display_names=names)}
 
 
 # 抖音头像域名白名单（防盗链代理）
@@ -156,8 +212,10 @@ _AVATAR_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 @router.get("/api/avatar")
 def api_avatar(
     url: str,
+    token: str = Header(default="", alias="X-Auth-Token"),
 ):
-    """代理白名单内的抖音头像图片，限制协议、跳转和响应大小。"""
+    """代理抖音头像图片；<img> 会自动携带 HttpOnly 会话 Cookie。"""
+    _check_auth(token)
     parsed = urlparse(url)
     # scheme 显式限定：file:// 可绕过白名单读本地文件
     if parsed.scheme not in ("http", "https"):
@@ -184,26 +242,26 @@ def api_avatar(
 
 
 @router.post("/api/ledger/harvest-creator")
-def api_harvest_creator() -> dict:
+def api_harvest_creator(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
     _start_harvest_creator()
     return {"ok": True, "started": True}
 
 
 @router.get("/api/ledger/stats")
-def api_ledger_stats() -> dict:
+def api_ledger_stats(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
     return ledger.stats()
 
 
 @router.put("/api/ledger")
-def api_ledger_save(body: LedgerBody) -> dict:
-    changes: list[dict] = []
+def api_ledger_save(body: LedgerBody, token: str = Header(default="", alias="X-Auth-Token")) -> dict:
+    _check_auth(token)
+    changes = []
     for e in body.entries or []:
-        name = str(e.get("display_name", "")).strip()
-        if name and isinstance(e.get("selected"), bool):
-            changes.append({
-                "display_name": name,
-                "selected": e["selected"],
-                "selected_order": e.get("selected_order"),
-            })
-    stats = ledger.set_selected(changes)
-    return {"ok": True, **stats}
+        name = str(e.get("display_name") or "").strip()
+        key = str(e.get("entry_id") or "").strip()
+        if (name or key) and isinstance(e.get("selected"), bool):
+            changes.append({"entry_id": key, "display_name": name,
+                            "selected": e["selected"], "selected_order": e.get("selected_order")})
+    return {"ok": True, **_identity_call(ledger.set_selected, changes)}

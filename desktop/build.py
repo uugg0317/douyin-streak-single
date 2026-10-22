@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""抖音续火花 · 桌面版打包脚本（PyInstaller --onedir）
+"""抖音续火花 2.8 · 桌面版打包脚本（PyInstaller --onedir）
 
 做四件事：
 1. 校验 Python 版本，并安装锁定依赖 + 桌面额外依赖（pystray / pillow / psutil / pyinstaller）；
@@ -10,7 +10,7 @@
 用法（在项目根目录）：
     python desktop/build.py
 
-产物：dist/DouyinStreak/DouyinStreak.exe
+产物：desktop/_build/dist/DouyinStreak/DouyinStreak.exe
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ EXTRA_PACKAGES = [
     "pyinstaller>=6.6",
 ]
 
-# 只读资源可以随包分发。用户账号数据与可选 SMTP 配置只在使用者机器上创建。
+# 只读资源可以随包分发。凭据与用户数据必须由首次运行在 exe 旁边创建。
 DATA_DIRS = ["static"]
 
 # uvicorn / apscheduler 存在运行时动态导入，PyInstaller 的静态分析会漏
@@ -58,7 +58,6 @@ HIDDEN_IMPORTS = [
     "apscheduler.schedulers.background",
     "apscheduler.triggers.cron",
     "apscheduler.executors.pool",
-    "playwright_stealth",
     "pystray._win32",
 ]
 
@@ -309,13 +308,12 @@ def report(exe: str) -> None:
     print(f"  目录体积  ：{total / 1024 / 1024:.1f} MB")
     print()
     print("  分发方式：整个目录一起拷贝（不能只拷 exe）。")
-    print("  双击 DouyinStreak.exe 后：托盘出现图标，浏览器直接打开本机面板。")
-    print("  面板仅监听回环地址，后台任务沿用既有配置；可选 SMTP 配置不随包分发。")
+    print("  双击 DouyinStreak.exe 后：托盘出现图标，浏览器自动打开管理后台。")
     print()
 
 
 def main() -> int:
-    print("抖音续火花 · 桌面版打包")
+    print("抖音续火花 2.8 · 桌面版打包")
     print(f"项目根目录：{ROOT}")
     ensure_venv()          # 会切换到 desktop/_build/.venv 并重新执行本脚本
     check_python()
