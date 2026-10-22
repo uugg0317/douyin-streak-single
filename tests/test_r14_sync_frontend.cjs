@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const html=fs.readFileSync(path.join(__dirname,'../static/index.html'),'utf8');
-const script=[...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].find(m=>!/\bsrc\s*=/.test(m[1])&&m[2].includes('const { createApp'))[2];
+const script = require('./console_source.cjs').loadConsoleSource().source;
 const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
 const defer=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
 function mount(){

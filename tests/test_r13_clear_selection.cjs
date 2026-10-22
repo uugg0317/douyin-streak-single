@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const html=fs.readFileSync(path.join(__dirname,'../static/index.html'),'utf8');
-const script=[...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].find(m=>!/\bsrc\s*=/.test(m[1])&&m[2].includes('const { createApp'))[2];
+const script = require('./console_source.cjs').loadConsoleSource().source;
 function mount(){
  let c,approved=true,fail=false,ledger={ledger_version:'saved-A',entries:[{entry_id:'a',display_name:'合成好友A',selected:true}]};
  const posted=[],prompts=[],messages=[];

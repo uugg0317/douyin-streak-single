@@ -89,7 +89,7 @@ async def url_token_device_auth(request, call_next):
 
 
 async def cache_policy(request, call_next):
-    """HTML 禁缓存；体积较大的本地静态资源允许浏览器复用并重新验证。"""
+    """HTML 禁缓存，自有脚本/样式每次重新验证，vendor 保留较长缓存。"""
     response = await call_next(request)
     path = request.url.path
     if path == "/" or path.endswith(".html"):
@@ -103,7 +103,7 @@ async def cache_policy(request, call_next):
         # 文件名尚未带内容哈希，因此不设 immutable；一周后重新校验可兼顾升级。
         response.headers["Cache-Control"] = "public, max-age=604800, must-revalidate"
     elif path.startswith("/static/"):
-        response.headers["Cache-Control"] = "public, max-age=86400, must-revalidate"
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 

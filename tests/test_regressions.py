@@ -156,6 +156,17 @@ class CacheTests(unittest.TestCase):
         self.assertIn("max-age=604800", vendor.headers["cache-control"])
         self.assertEqual(api.headers["cache-control"], "no-store")
 
+    def test_owned_static_modules_and_styles_revalidate_including_revision_queries(self) -> None:
+        async def respond(_request: Request) -> Response:
+            return Response()
+
+        for path in ("/static/console-results.js", "/static/console-app.js", "/static/reference-theme.css", "/static/silk-background.js"):
+            with self.subTest(path=path):
+                request = _request(path)
+                request.scope["query_string"] = b"v=synthetic-revision"
+                response = asyncio.run(cache_policy(request, respond))
+                self.assertEqual(response.headers["cache-control"], "no-cache")
+
 
 class SessionWarnSwitchTests(unittest.TestCase):
     def _set_switch(self, value: str | None) -> None:

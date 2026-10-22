@@ -1,7 +1,7 @@
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const assert = require('node:assert/strict');
 const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
-const script = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].find(m => !/\bsrc\s*=/.test(m[1]) && m[2].includes('const { createApp'))[2];
+const script = require('./console_source.cjs').loadConsoleSource().source;
 function mount() {
   let component, response = {}, ledgerResponse = {entries:[]}, failure = false;
   const backgroundPauses = [], posted = [];
