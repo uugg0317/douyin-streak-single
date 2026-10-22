@@ -21,7 +21,7 @@ ORIGIN = "https://panel.example.invalid"
 
 
 def fake_state(**changes):
-    cookie = {"name": "sessionid", "value": "offline-only-cookie", "domain": ".douyin.com",
+    cookie = {"name": "sessionid", "value": "synthetic-offline-only-cookie", "domain": ".douyin.com",
               "path": "/", "expires": -1, "httpOnly": True, "secure": True, "sameSite": "Lax"}
     cookie.update(changes)
     return {"cookies": [cookie], "origins": []}
@@ -133,7 +133,7 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()), fake_state())
         safe = self.manager.snapshot()
         self.assertNotIn("saved_path", safe)
-        self.assertNotIn("offline-only-cookie", json.dumps(safe))
+        self.assertNotIn("synthetic-offline-only-cookie", json.dumps(safe))
         self.assertNotIn(str(self.tmp), json.dumps(safe))
         self.assertFalse(self.manager.task["folder"].exists())
         self.assertEqual(json.loads(self.manager.download(result["job_id"])), fake_state())
@@ -247,7 +247,7 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(self.closed)
         status = json.loads((self.folder / "status.json").read_text())
         self.assertEqual(status["status"], "success")
-        self.assertNotIn("offline-only-cookie", json.dumps(status))
+        self.assertNotIn("synthetic-offline-only-cookie", json.dumps(status))
         self.assertEqual(json.loads((self.folder / "candidate.json").read_text()), fake_state())
         self.context.storage_state.assert_called_once_with()
 

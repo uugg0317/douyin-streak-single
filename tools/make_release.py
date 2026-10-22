@@ -18,9 +18,9 @@ import stat
 import subprocess
 import zipfile
 if __package__:
-    from .release_privacy import user_path_lines, public_commands, public_value, evidence_summary
+    from .release_privacy import user_path_lines, secret_findings, public_commands, public_value, evidence_summary
 else:
-    from release_privacy import user_path_lines, public_commands, public_value, evidence_summary
+    from release_privacy import user_path_lines, secret_findings, public_commands, public_value, evidence_summary
 
 
 class ReleaseError(ValueError):
@@ -185,10 +185,14 @@ def _scan_public_text(name: str, raw: bytes) -> None:
         return
     try:
         lines=user_path_lines(name,raw)
+        secrets=secret_findings(name,raw)
     except UnicodeError as error:
         raise ReleaseError('non-UTF8 release text: '+name) from error
     if lines:
         raise ReleaseError('local username path in release text: '+', '.join(name+':'+str(line) for line in lines))
+    if secrets:
+        raise ReleaseError('sensitive release text: '+', '.join(
+            name+':'+str(item['line'])+' ('+item['kind']+')' for item in secrets))
 
 
 def _verify_command_evidence(root: Path, commands: list[dict]) -> None:
@@ -323,6 +327,8 @@ def _dist_path(root: Path, relative: Path, *, create_parent: bool = False) -> Pa
 
 
 def _write_sources(staging: Path, contents: dict[str, bytes]) -> None:
+    for name, data in contents.items():
+        _scan_public_text(name, data)
     for name, data in contents.items():
         target = staging / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -610,8 +616,10 @@ def build_release(root: Path | str, *, name: str = "source-preview") -> Path:
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         # Source selection and links have already been checked before the open.
+        content = _canonical_bytes(relative, source.read_bytes())
+        _scan_public_text(relative.as_posix(), content)
         with destination.open("xb") as outgoing:
-            outgoing.write(_canonical_bytes(relative, source.read_bytes()))
+            outgoing.write(content)
     validate_staging(staging)
     with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED) as package:
         for relative in files:

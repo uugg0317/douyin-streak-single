@@ -172,7 +172,7 @@ class PublicPasswordLoginTests(EndToEndAuthTests):
             "INSTANCE_LOCK_PATH": str(sandbox_path / "server.pid"),
             "LOGIN_GATE": "on",
             "AUTH_TOKEN": TOKEN,
-            "URL_ACCESS_TOKEN": "e2e-url-access-token-32chars-xxxxxx",
+            "URL_ACCESS_TOKEN": "synthetic-e2e-url-access-token-32chars-xxxxxx",
             "URL_PASSWORD_SALT": PUBLIC_SALT,
             "URL_PASSWORD_HASH": PUBLIC_HASH,
             "PASSWORD_PUBLIC_LOGIN": "on",
@@ -253,7 +253,7 @@ class PublicPasswordLoginTests(EndToEndAuthTests):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.request(
                 "POST", "/api/auth/url-token-login",
-                {"access_token": "forged-token", "password": PUBLIC_PASSWORD},
+                {"access_token": "synthetic-forged-token", "password": PUBLIC_PASSWORD},
             )
         self.assertEqual(caught.exception.code, 401)
         caught.exception.close()

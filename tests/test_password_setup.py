@@ -154,8 +154,8 @@ class PasswordSetupTests(unittest.TestCase):
         self.initialize([new_password, new_password])
         old_password, old_salt = "old-inherited-password-123", "old-salt"
         inherited = {
-            "AUTH_TOKEN": "old-inherited-management-token",
-            "URL_ACCESS_TOKEN": "old-inherited-url-token",
+            "AUTH_TOKEN": "synthetic-old-inherited-management-token",
+            "URL_ACCESS_TOKEN": "synthetic-old-inherited-url-token",
             "URL_PASSWORD_SALT": old_salt,
             "URL_PASSWORD_HASH": hashlib.sha256((old_password + old_salt).encode()).hexdigest(),
             "SMTP_SERVER": "inherited-example.invalid",

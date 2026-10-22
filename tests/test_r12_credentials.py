@@ -52,7 +52,7 @@ async def upload(raw=None):
     raw = encode(state()) if raw is None else raw
     return await credentials.api_upload_state(
         file=UploadFile(filename='synthetic-state.json', file=io.BytesIO(raw)),
-        token='r12-synthetic-management-token')
+        token='synthetic-r12-synthetic-management-token')
 
 def rejected(code, raw):
     try:
@@ -81,7 +81,7 @@ class CredentialValidationTests(unittest.TestCase):
             env.update(DATA_DIR=str(base / 'data'), ENV_FILE_PATH=str(base / 'missing.env'),
                        INSTANCE_LOCK_PATH=str(base / 'instance.pid'), STATE_FILE_PATH='',
                        LOGIN_GATE='on', PASSWORD_PUBLIC_LOGIN='off', HOST='127.0.0.1',
-                       AUTH_TOKEN='r12-synthetic-management-token', URL_ACCESS_TOKEN='',
+                       AUTH_TOKEN='synthetic-r12-synthetic-management-token', URL_ACCESS_TOKEN='',
                        URL_PASSWORD_SALT='', URL_PASSWORD_HASH='', QR_PUBLIC_ORIGIN='',
                        SPARKKEEPER_BACKGROUND_TASKS='0', SESSION_WARN_EMAIL_ENABLED='off',
                        SPARKKEEPER_NO_ROOT_STATE_FALLBACK='1', TEMP=str(base), TMP=str(base),
@@ -245,7 +245,7 @@ class CredentialValidationTests(unittest.TestCase):
             boundary = 'r12-synthetic-boundary'
             body = (('--' + boundary + '\\r\\nContent-Disposition: form-data; name="file"; filename="state.json"\\r\\n'
                      'Content-Type: application/json\\r\\n\\r\\n').encode() + encode(state()) + ('\\r\\n--' + boundary + '--\\r\\n').encode())
-            headers = [(b'x-auth-token', b'r12-synthetic-management-token'),
+            headers = [(b'x-auth-token', b'synthetic-r12-synthetic-management-token'),
                        (b'content-type', ('multipart/form-data; boundary=' + boundary).encode())]
             pending = asyncio.create_task(request('/api/credentials/upload', 'POST', body, headers))
             before = time.monotonic()
@@ -311,7 +311,7 @@ class CredentialValidationTests(unittest.TestCase):
             read = mock.AsyncMock(return_value=encode(state()))
         file = AsyncUpload()
         with mock.patch.object(automation, 'restart_browser', return_value=True) as restart:
-            asyncio.run(credentials.api_upload_state(file=file, token='r12-synthetic-management-token'))
+            asyncio.run(credentials.api_upload_state(file=file, token='synthetic-r12-synthetic-management-token'))
         file.read.assert_awaited_once_with(5 * 1024 * 1024 + 1)
         restart.assert_called_once_with(timeout=None)
         ''')

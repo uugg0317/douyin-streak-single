@@ -185,7 +185,7 @@ class SessionWarnSwitchTests(unittest.TestCase):
 
 
 class StatePathTests(unittest.TestCase):
-    _FAKE_STATE = json.dumps({"cookies": [{"name": "sessionid", "value": "x"}]})
+    _FAKE_STATE = json.dumps({"cookies": [{"name": "sessionid", "value": "x"}]})  # SYNTHETIC_SECRET_SHA256=2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881
 
     def test_no_state_returns_none(self) -> None:
         self.assertIsNone(cfg_mod.get_valid_state_path())

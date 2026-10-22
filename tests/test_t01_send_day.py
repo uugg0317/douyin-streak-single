@@ -57,7 +57,7 @@ class SendDayTests(unittest.TestCase):
             env = dict(os.environ)
             env.update(DATA_DIR=str(base / "data"), ENV_FILE_PATH=str(base / "不存在.env"),
                        STATE_FILE_PATH="", SPARKKEEPER_BACKGROUND_TASKS="0", LOGIN_GATE="on",
-                       AUTH_TOKEN="t01-isolated-token-never-real", PASSWORD_PUBLIC_LOGIN="off",
+                       AUTH_TOKEN="synthetic-t01-isolated-token-never-real", PASSWORD_PUBLIC_LOGIN="off",
                        PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1", TEMP=str(base), TMP=str(base))
             result = subprocess.run([sys.executable, "-B", "-c", PRELUDE + "\n" + textwrap.dedent(body)],
                                     cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=25)

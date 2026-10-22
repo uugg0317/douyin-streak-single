@@ -60,7 +60,7 @@ class RuntimeRunTests(unittest.TestCase):
                 "DATA_DIR": str(folder / "data"), "ENV_FILE_PATH": str(folder / "missing.env"),
                 "INSTANCE_LOCK_PATH": str(folder / "pid"), "STATE_FILE_PATH": "",
                 "SPARKKEEPER_NO_ROOT_STATE_FALLBACK": "1", "SPARKKEEPER_BACKGROUND_TASKS": "0",
-                "LOGIN_GATE": "on", "AUTH_TOKEN": "t03-isolated-token-never-real",
+                "LOGIN_GATE": "on", "AUTH_TOKEN": "synthetic-t03-isolated-token-never-real",
                 "PASSWORD_PUBLIC_LOGIN": "off", "SESSION_WARN_EMAIL_ENABLED": "off",
                 "HOST": "127.0.0.1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1",
                 "TEMP": str(folder), "TMP": str(folder),

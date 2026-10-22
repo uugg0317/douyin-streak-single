@@ -207,7 +207,7 @@ class DeployPasswordPreflightTests(unittest.TestCase):
             ({"AUTH_TOKEN": token}, 0),
             ({"AUTH_TOKEN": token, "PASSWORD_PUBLIC_LOGIN": "on"}, 1),
             ({"AUTH_TOKEN": token, "URL_ACCESS_TOKEN": token}, 1),
-            ({"AUTH_TOKEN": token, "URL_PASSWORD_HASH": "scrypt$999999$8$1$" + "11" * 32 + "$" + "22" * 32}, 1),
+            ({"AUTH_TOKEN": token, "URL_PASSWORD_HASH": "scrypt$999999$8$1$" + "11" * 32 + "$" + "22" * 32}, 1),  # SYNTHETIC_SECRET_SHA256=139e70a8233a6d2b90a4eed5cbdf11a346f792d4d61ab3aee144ea16ccde3bcb
             ({"PASSWORD_PUBLIC_LOGIN": "on", "URL_PASSWORD_HASH": scrypt_hash, "LOGIN_GATE": "off"}, 1),
             ({"AUTH_TOKEN": "change_me_token", "PASSWORD_PUBLIC_LOGIN": "on", "URL_PASSWORD_HASH": scrypt_hash}, 1),
         ]

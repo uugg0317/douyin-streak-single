@@ -182,10 +182,10 @@ async def _request(method, path, *, data=None, headers=None, token=TOKEN, raw=No
 def request(method,path,**kwargs): return asyncio.run(_request(method,path,**kwargs))
 def start(**kwargs): return request("POST",BASE+"/start",data={"request_id":str(uuid.uuid4())},**kwargs)
 def valid_state():
-    return json.dumps({"cookies":[{"name":"sessionid","value":"PRIVATE-STATE-SENTINEL","domain":".douyin.com","path":"/","expires":4102444800}],"origins":[]}).encode()
+    return json.dumps({"cookies":[{"name":"sessionid","value":"synthetic-qr-route-credential","domain":".douyin.com","path":"/","expires":4102444800}],"origins":[]}).encode()
 def assert_safe(data):
     encoded=json.dumps(data)
-    for value in (TOKEN,"PRIVATE-STATE-SENTINEL","storage_state","cookies",str(cfg.DATA_DIR)):
+    for value in (TOKEN,"synthetic-qr-route-credential","storage_state","cookies",str(cfg.DATA_DIR)):
         assert value not in encoded,value
 '''
 

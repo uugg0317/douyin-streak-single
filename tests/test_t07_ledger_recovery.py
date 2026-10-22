@@ -76,7 +76,7 @@ class LedgerRecoveryTests(unittest.TestCase):
             env.update({
                 "DATA_DIR": str(folder / "data"), "ENV_FILE_PATH": str(folder / "missing.env"),
                 "INSTANCE_LOCK_PATH": str(folder / "pid"), "HOST": "127.0.0.1", "PORT": "8000",
-                "LOGIN_GATE": "on", "AUTH_TOKEN": "t07-isolated-management-token-not-real",
+                "LOGIN_GATE": "on", "AUTH_TOKEN": "synthetic-t07-isolated-management-token-not-real",
                 "PASSWORD_PUBLIC_LOGIN": "off", "SPARKKEEPER_BACKGROUND_TASKS": "0",
                 "SESSION_WARN_EMAIL_ENABLED": "off", "QR_PUBLIC_ORIGIN": "", "ALLOWED_HOSTS": "",
                 "WHITELIST_IPS": "", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1",

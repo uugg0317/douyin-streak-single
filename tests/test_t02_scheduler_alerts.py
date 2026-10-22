@@ -38,7 +38,7 @@ class SchedulerAlertTests(unittest.TestCase):
             env.update({
                 "DATA_DIR": str(folder / "data"), "ENV_FILE_PATH": str(folder / "missing.env"),
                 "INSTANCE_LOCK_PATH": str(folder / "pid"), "HOST": "127.0.0.1",
-                "LOGIN_GATE": "on", "AUTH_TOKEN": "t02-isolated-management-token-not-real",
+                "LOGIN_GATE": "on", "AUTH_TOKEN": "synthetic-t02-isolated-management-token-not-real",
                 "PASSWORD_PUBLIC_LOGIN": "off", "SPARKKEEPER_BACKGROUND_TASKS": "0",
                 "SESSION_WARN_EMAIL_ENABLED": "on", "FAILURE_BREAKER_THRESHOLD": "3",
                 "QR_PUBLIC_ORIGIN": "", "WHITELIST_IPS": "",

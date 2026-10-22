@@ -81,6 +81,19 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertEqual(len(snapshot["git_head"]), 40)
         self.assertEqual(len(snapshot["source_tree_sha256"]), 64)
 
+    def test_test_snapshot_rejects_committed_credentials_before_copying_sources(self):
+        value = 'rejected-fixture-value-' + '0123456789abcdef' * 2
+        self.put('tests/test_leak.py', ('AUTH_TOKEN' + ' = ' + repr(value) + '\n').encode())
+        self.git('add', '--', 'tests/test_leak.py')
+        self.git('commit', '-qm', 'synthetic scanner input')
+        snapshot = release.capture_snapshot(self.root)
+        with self.assertRaises(release.ReleaseError) as caught:
+            release.prepare_test_snapshot(self.root, snapshot)
+        self.assertIn('tests/test_leak.py:1', str(caught.exception))
+        self.assertTrue(value not in str(caught.exception))
+        prepared = self.root / 'dist' / ('verify-' + snapshot['git_head'][:8])
+        self.assertEqual(list(prepared.iterdir()), [])
+
     def test_missing_browser_report_cannot_create_verified_release(self):
         before=release.capture_snapshot(self.root)
         prepared=release.prepare_test_snapshot(self.root,before)

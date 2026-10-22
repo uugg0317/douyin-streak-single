@@ -25,7 +25,7 @@ class PendingRetryTests(unittest.TestCase):
             env = os.environ.copy()
             env.update(DATA_DIR=temporary, ENV_FILE_PATH=str(Path(temporary)/'missing.env'),
                        INSTANCE_LOCK_PATH=str(Path(temporary)/'lock'), SPARKKEEPER_BACKGROUND_TASKS='0',
-                       AUTH_TOKEN='isolated-retry-test-token', LOGIN_GATE='on',
+                       AUTH_TOKEN='synthetic-isolated-retry-test-token', LOGIN_GATE='on',
                        PASSWORD_PUBLIC_LOGIN='off', PYTHONDONTWRITEBYTECODE='1', PYTHONUTF8='1')
             result = subprocess.run([sys.executable, '-B', '-c', PREAMBLE+'\n'+textwrap.dedent(code)],
                                     cwd=ROOT, env=env, capture_output=True, text=True, encoding='utf-8', timeout=15)

@@ -57,7 +57,7 @@ class CatchUpTests(unittest.TestCase):
             env = {key: value for key, value in os.environ.items() if key not in scrub}
             env.update(DATA_DIR=str(base / "data"), ENV_FILE_PATH=str(base / "不存在.env"),
                        INSTANCE_LOCK_PATH=str(base / "server.pid"), STATE_FILE_PATH="",
-                       AUTH_TOKEN="t03-isolated-token", LOGIN_GATE="on", PASSWORD_PUBLIC_LOGIN="off",
+                       AUTH_TOKEN="synthetic-t03-isolated-token", LOGIN_GATE="on", PASSWORD_PUBLIC_LOGIN="off",
                        SPARKKEEPER_BACKGROUND_TASKS="0", SESSION_WARN_EMAIL_ENABLED="off",
                        PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1", TEMP=str(base), TMP=str(base))
             result = subprocess.run([sys.executable, "-B", "-c", PREAMBLE + "\n" + textwrap.dedent(body)],

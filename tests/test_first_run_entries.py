@@ -114,8 +114,8 @@ class DesktopPreparationTests(unittest.TestCase):
 
     def test_stale_inherited_auth_is_replaced_but_other_environment_is_preserved(self):
         self.seed()
-        os.environ.update(AUTH_TOKEN="old-token", URL_ACCESS_TOKEN="old-url", URL_PASSWORD_HASH="old-hash",
-                          URL_PASSWORD_SALT="old-salt", SMTP_SERVER="inherited.invalid")
+        os.environ.update(AUTH_TOKEN="synthetic-old-token", URL_ACCESS_TOKEN="synthetic-old-url", URL_PASSWORD_HASH="synthetic-old-hash",
+                          URL_PASSWORD_SALT="synthetic-old-salt", SMTP_SERVER="inherited.invalid")
         self.prepare()
         values = password_setup._parse_env(self.config.read_text(encoding="utf-8"))
         for key in ("AUTH_TOKEN", "URL_ACCESS_TOKEN", "URL_PASSWORD_HASH", "URL_PASSWORD_SALT"):
@@ -336,7 +336,7 @@ export PATH="$PWD/commands:$PATH"
 export TEST_CALLS="$PWD/calls.txt"
 export ENV_FILE_PATH='custom.env'
 export TEST_EXPECTED_ENV="$PWD/custom.env"
-export AUTH_TOKEN='stale-synthetic-token'
+export AUTH_TOKEN='synthetic-stale-synthetic-token'
 export SMTP_SERVER='synthetic.invalid'
 exec bash project/start.sh
 ''', encoding="utf-8", newline="\n")

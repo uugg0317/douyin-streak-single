@@ -210,9 +210,9 @@ class SmtpSecurityTests(unittest.TestCase):
         before=stored()
         cases=[{'smtp_port':0,'smtp_pass':FAKE_PASS},{'smtp_port':65536,'smtp_pass':FAKE_PASS},
                {'smtp_port':'not-number','smtp_pass':FAKE_PASS},
-               {'smtp_host':'smtp.new.example.invalid','smtp_pass':'123456'},
-               {'smtp_host':'smtp.new.example.invalid','smtp_pass':'short'},
-               {'smtp_host':'smtp.new.example.invalid','smtp_pass':'invalid\\ncodeletters'}]
+               {'smtp_host':'smtp.new.example.invalid','smtp_pass':'123456'},  # SYNTHETIC_SECRET_SHA256=8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92
+               {'smtp_host':'smtp.new.example.invalid','smtp_pass':'short'},  # SYNTHETIC_SECRET_SHA256=f9b0078b5df596d2ea19010c001bbd009e651de2c57e8fb7e355f31eb9d3f739
+               {'smtp_host':'smtp.new.example.invalid','smtp_pass':'invalid\\ncodeletters'}]  # SYNTHETIC_SECRET_SHA256=8f2998b77cc033e0fcdbb0b9deb104e53f6a5aad415cd415fe1ca4efec36f0e2
         for changed in cases:
             try:email.save_email_config({**changed,'mail_to':'new-to@example.invalid','subject':'新主题'})
             except ValueError as error:assert FAKE_PASS not in str(error)
@@ -232,7 +232,7 @@ class SmtpSecurityTests(unittest.TestCase):
             assert resume.wait(3)
             actual_save(updates)
         def write():
-            try:email.save_email_config({'smtp_host':'smtp.a.example.invalid','smtp_pass':'a-fake-authorization-code'})
+            try:email.save_email_config({'smtp_host':'smtp.a.example.invalid','smtp_pass':'a-fake-authorization-code'})  # SYNTHETIC_SECRET_SHA256=9fde2a24e58b9a14fcf49381606be43583cbe3c9e1dba569edabb14bf3b61e3e
             except Exception as error:errors.append(error)
         def read():
             read_started.set()

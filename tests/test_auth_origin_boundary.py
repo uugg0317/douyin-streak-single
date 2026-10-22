@@ -79,7 +79,7 @@ class AuthOriginBoundaryTests(unittest.TestCase):
                 "DATA_DIR": str(folder / "data"), "ENV_FILE_PATH": str(folder / "missing.env"),
                 "INSTANCE_LOCK_PATH": str(folder / "server.pid"), "STATE_FILE_PATH": "",
                 "AUTH_TOKEN": TOKEN, "LOGIN_GATE": "on", "PASSWORD_PUBLIC_LOGIN": "on",
-                "URL_ACCESS_TOKEN": "review-url-token-synthetic-123456789",
+                "URL_ACCESS_TOKEN": "synthetic-review-url-token-synthetic-123456789",
                 "URL_PASSWORD_SALT": salt, "URL_PASSWORD_HASH": hashlib.sha256((PASSWORD + salt).encode()).hexdigest(),
                 "HOST": "127.0.0.1", "PORT": "8000", "QR_PUBLIC_ORIGIN": "", "WHITELIST_IPS": "",
                 "SPARKKEEPER_BACKGROUND_TASKS": "0", "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1",

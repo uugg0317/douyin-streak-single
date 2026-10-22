@@ -236,7 +236,7 @@ class SmtpSecurity(unittest.TestCase):
                             and ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname)
 
                 cfg = {"smtp_host": "smtp.example.com", "smtp_user": "u@example.com",
-                       "smtp_pass": "p" * 16, "mail_to": "t@example.com"}
+                       "smtp_pass": "p" * 16, "mail_to": "t@example.com"}  # SYNTHETIC_SECRET_SHA256=148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940
                 with mock.patch.object(smtplib, "SMTP_SSL", FakeSMTP), \\
                         mock.patch.object(smtplib, "SMTP", FakeSMTP):
                     seen.clear()
