@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 抖音续火花 2.8：仅在本机启动，不配置公网入口。
+# 抖音续火花：仅在本机启动，不配置公网入口。
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -31,7 +31,7 @@ if ! venv/bin/python startup_check.py; then
   venv/bin/python -m playwright install chromium
   venv/bin/python startup_check.py
 fi
-echo "[版本] 抖音续火花 2.8（本机无密码门）"
+venv/bin/python tools/version_info.py
 echo "[本机地址] http://127.0.0.1:8000/"
 echo "[运行模式] 后台任务暂停，手动操作由控制台发起。"
 echo "[停止服务] 按 Ctrl+C。"

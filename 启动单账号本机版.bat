@@ -32,7 +32,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo [版本] 单账号控制台 2.9（有密码门）
+"%~dp0venv\Scripts\python.exe" "%~dp0tools\version_info.py"
 echo [本机地址] http://127.0.0.1:8000/
 echo [运行模式] 后台定时任务暂停，可查看面板和手动操作。
 echo [停止服务] 按 Ctrl+C，运行期间保留此窗口。

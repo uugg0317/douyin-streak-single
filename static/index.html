@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>抖音自动续火花 2.8 · Douyin Cloud Streak</title>
+  <title>抖音自动续火花 · Douyin Cloud Streak</title>
   <link rel="icon" type="image/png" href="/static/favicon.png" />
   <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="apple-touch-icon" href="/static/favicon.png" />
@@ -2923,7 +2923,7 @@
             if (managementCurrent(epoch) && authed.value && statusPollingEnabled) loadStatus({reuse:true});
           }, pollDelay);
         }
-        const appVersion = ref('2.9');
+        const appVersion = ref('');
         function rememberLogoutPending(pending) {
           logoutPending.value = pending;
           try { if (typeof sessionStorage !== 'undefined') { if (pending) sessionStorage.setItem('dcs_logout_pending', '1'); else sessionStorage.removeItem('dcs_logout_pending'); } } catch (_) {}
@@ -3027,7 +3027,7 @@
         ];
 
         const defaultStatus = {
-          version: '2.8',
+          version: '',
           state_file_exists: false,
           session_status: 'unknown',
           session_checked_at: null,
@@ -3069,7 +3069,7 @@
             (value.unconfirmed > 0 ? '请在抖音核对待核对对象，勿直接重发。' : '') +
             '已确认接受不代表对方已读，也不保证火花增长。';
         });
-        const BASE_DOC_TITLE = '抖音自动续火花 2.8 · Douyin Cloud Streak';
+        const baseDocTitle = () => `抖音自动续火花${status.version || appVersion.value ? ' ' + (status.version || appVersion.value) : ''} · Douyin Cloud Streak`;
         let pollDelay = 10000;
 
         const defaultConfig = {
@@ -3385,7 +3385,7 @@
             // 连续失败时标签页标题加警示（比声音/震动可靠，不依赖浏览器前台或静音）
             document.title = status.consecutive_failures > 0
               ? `⚠️ 连续失败${status.consecutive_failures}轮 · 抖音自动续火花`
-              : BASE_DOC_TITLE;
+              : baseDocTitle();
             // 动态轮询：发送中 1.5s 看实时进度，空闲 10s
             return true;
           } catch (e) {
@@ -3558,7 +3558,7 @@
           iosBanner.visible = false;
           if (iosBannerTimer !== null) clearTimeout(iosBannerTimer);
           iosBannerTimer = null;
-          document.title = BASE_DOC_TITLE;
+          document.title = baseDocTitle();
         }
         const emailSubView = ref('');
         const playEmailEntrance = () => {
@@ -4353,6 +4353,7 @@
             const hv = await api.get('/api/health', healthRead.options);
             if (!healthRead.current()) return;
             if (hv.data.version) appVersion.value = hv.data.version;
+            document.title = baseDocTitle();
           } catch (_) { if (!healthRead.current()) return; }
           finally { finishManagedRead(healthRead); }
           try {
