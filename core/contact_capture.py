@@ -1,6 +1,7 @@
 """Read-only DOM contract. Synthetic markers do not establish real-site support."""
 import json
 import re
+import time
 from .contact_identity import avatar_key
 from .streaks import parse_streak
 
@@ -164,22 +165,39 @@ def _indexed(rows):
     return indexed
 
 
-def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, progress=lambda:None):
+def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, progress=lambda:None, clock=None):
+    """Measure this scan without shortening any DOM or pagination settling wait.
+
+    read includes extraction and scroll-state queries; stabilize includes all
+    existing waits; scroll measures only the scroll command. Total also includes
+    Python merging, callbacks and summary work, so buckets need not sum to total.
+    """
+    now = time.perf_counter if clock is None else clock
+    started = now()
+    elapsed = dict.fromkeys(('read', 'stabilize', 'scroll'), 0.0)
+
+    def measured(bucket, operation, *args):
+        before = now()
+        try:
+            return operation(*args)
+        finally:
+            elapsed[bucket] += max(0.0, now() - before)
+
     merged = _indexed(collected)
     stable, previous_height, complete = 0, None, False
     reason, rounds = 'round_limit', 0
     profiles_unresolved = False
     for rounds in range(1, max_rounds + 1):
-        first_rows = page.evaluate(extract_js) or []
-        page.wait_for_timeout(READ_PAIR_INTERVAL_MS)
-        second_rows = page.evaluate(extract_js) or []
+        first_rows = measured('read', page.evaluate, extract_js) or []
+        measured('stabilize', page.wait_for_timeout, READ_PAIR_INTERVAL_MS)
+        second_rows = measured('read', page.evaluate, extract_js) or []
         for _ in range(6):
             if not any(row.get('profile_pending') for row in first_rows + second_rows if isinstance(row,dict)):
                 break
-            page.wait_for_timeout(500)
-            first_rows = page.evaluate(extract_js) or []
-            page.wait_for_timeout(READ_PAIR_INTERVAL_MS)
-            second_rows = page.evaluate(extract_js) or []
+            measured('stabilize', page.wait_for_timeout, 500)
+            first_rows = measured('read', page.evaluate, extract_js) or []
+            measured('stabilize', page.wait_for_timeout, READ_PAIR_INTERVAL_MS)
+            second_rows = measured('read', page.evaluate, extract_js) or []
         pending = any(row.get('profile_pending') for row in first_rows + second_rows if isinstance(row,dict))
         profiles_unresolved = profiles_unresolved or pending
         first, second = _indexed(first_rows), _indexed(second_rows)
@@ -195,7 +213,7 @@ def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, prog
             merged[key] = value
         if fresh:
             progress()
-        state = page.evaluate(SCROLL_STATE_JS) or {}
+        state = measured('read', page.evaluate, SCROLL_STATE_JS) or {}
         settled = (state.get('known') is True and state.get('bottom') is True
                    and state.get('loading') is False and state.get('height') == previous_height)
         stable = stable + 1 if settled and consistent and not fresh else 0
@@ -207,11 +225,14 @@ def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, prog
             reason = 'unknown_scroll_container'
         elif state.get('loading'):
             reason = 'loading'
-        page.evaluate(SCROLL_NEXT_JS)
-        page.wait_for_timeout(BOTTOM_SETTLE_MS if state.get('bottom') else SCROLL_SETTLE_MS)
+        measured('scroll', page.evaluate, SCROLL_NEXT_JS)
+        measured('stabilize', page.wait_for_timeout, BOTTOM_SETTLE_MS if state.get('bottom') else SCROLL_SETTLE_MS)
     collected[:] = list(merged.values())
-    return {'complete':complete, 'reason':reason, 'rounds':rounds, 'rows':len(collected),
+    result = {'complete':complete, 'reason':reason, 'rounds':rounds, 'rows':len(collected),
             'streak_counts':summarize_streaks(collected),
             'confirmed':sum(row.get('streak_status')=='confirmed' for row in collected),
             'unknown':sum(row.get('streak_status') in {'unknown','suspect'} for row in collected),
             'profiles_unresolved':profiles_unresolved, 'scroll_height':previous_height, 'platform_dom_verified':False}
+    result['timings_ms'] = {key: round(value * 1000, 3) for key, value in elapsed.items()}
+    result['timings_ms']['total'] = round(max(0.0, now() - started) * 1000, 3)
+    return result

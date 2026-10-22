@@ -2921,14 +2921,23 @@
         function scheduleStatusPoll() {
           if (statusTimer !== null) clearTimeout(statusTimer);
           statusTimer = null;
-          if (!statusPollingEnabled || !authed.value || managementDisposed || statusReadPromise) return;
+          if (!statusPollingEnabled || !authed.value || managementDisposed || statusReadPromise || document.hidden) return;
           pollDelay = status.running || status.retry_dispatching ? 1500 : 10000;
           const epoch = managementEpoch;
           statusTimer = setTimeout(() => {
             statusTimer = null;
-            if (managementCurrent(epoch) && authed.value && statusPollingEnabled) loadStatus({reuse:true});
+            if (managementCurrent(epoch) && authed.value && statusPollingEnabled && !document.hidden) loadStatus({reuse:true});
           }, pollDelay);
         }
+        function onConsoleVisibility() {
+          if (document.hidden) {
+            if (statusTimer !== null) clearTimeout(statusTimer);
+            statusTimer = null;
+          } else if (statusPollingEnabled && authed.value && !managementDisposed) {
+            loadStatus({reuse:true});
+          }
+        }
+        document.addEventListener?.('visibilitychange', onConsoleVisibility);
         const appVersion = ref('');
         function rememberLogoutPending(pending) {
           logoutPending.value = pending;
@@ -4510,6 +4519,7 @@
 
         onBeforeUnmount(() => {
           managementDisposed = true;
+          document.removeEventListener?.('visibilitychange', onConsoleVisibility);
           stopManagementReads();
           contactsSyncDisposed = true;
           cancelContactSync();
