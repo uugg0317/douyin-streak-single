@@ -1427,6 +1427,8 @@ def compute_pending(cfg: dict | None = None, *, dry_run: bool = False, force: bo
     """预测本次运行会真实发送的名单（与 run_send 通道判定一致）。"""
     cfg = cfg or load_config()
     entries = ledger.get_selected() if selected_snapshot is None else selected_snapshot
+    if ledger.recovery_required():
+        return []
     daily_limit = max(1, _cfg_int(cfg, "first_message_daily_limit", 1))
     _, creator_sent_today = _b_channel_daily()
     allow_first = bool(cfg.get("allow_first_message"))
@@ -1577,6 +1579,12 @@ def _protect_unresolved_results(result: dict) -> None:
 def _send_creator(entry: dict, msg: str, dry_run: bool, result: dict, p) -> None:
     """通道 B：creator 首条消息。"""
     name = entry["display_name"]
+    if ledger.recovery_required():
+        result["ledger_recovery_required"] = True
+        result["skipped"].append({"entry_id": entry.get("entry_id", ""), "name": name,
+                                  "code": "ledger_recovery_required", "retryable": False,
+                                  "reason": "台账发送历史待恢复核对，本轮未提交消息"})
+        return
     if ledger.identity_block_reason(entry):
         result["skipped"].append({"entry_id": entry.get("entry_id", ""), "name": name,
                                   "code": ledger.identity_block_reason(entry), "retryable": False,
@@ -1742,6 +1750,14 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
     active_targets: list[dict] = []
 
     targets = ledger.get_selected() if selected_snapshot is None else list(selected_snapshot)
+    if ledger.recovery_required():
+        result["ledger_recovery_required"] = True
+        result["total"] = len(targets)
+        result["failed"].append({
+            "name": "_system", "code": "ledger_recovery_required", "retryable": False,
+            "reason": "台账从旧备份恢复或已损坏，发送历史可能不完整；请先核对并恢复数据，本轮未提交消息",
+        })
+        return result
     if selected_snapshot is None and not targets and cfg.get("friends"):
         stats = ledger.import_config_friends(cfg["friends"], only_if_missing=True)
         logger.info("已从 config.friends 迁移进台账：新增 %s 人，勾选 %s 人",

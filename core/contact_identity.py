@@ -25,6 +25,8 @@ def unresolved_send(entry):
 
 
 def identity_block_reason(entry):
+    if entry.get('ledger_recovery_required'):
+        return 'ledger_recovery_required'
     if entry.get('identity_ambiguous'):
         return 'identity_ambiguous'
     # 旧候选只用于防止重复发送，不再要求用户确认是不是同一个人。

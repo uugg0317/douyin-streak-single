@@ -39,6 +39,29 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def recovery_marker_path() -> Path:
+    """Keep recovery protection beside the actual ledger, including test overrides."""
+    return LEDGER_PATH.with_name("ledger-recovery-required.json")
+
+
+def recovery_required() -> bool:
+    """Presence is sufficient: a malformed/unreadable marker cannot lift protection."""
+    try:
+        recovery_marker_path().lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _require_recovery(reason: str) -> None:
+    # Persist before returning older/empty data. Failure must reach the caller;
+    # otherwise a later save could replace the damaged file and erase the warning.
+    if not recovery_required():
+        atomic_write_text(recovery_marker_path(), json.dumps({
+            "version": 1, "required": True, "reason": reason, "detected_at": _now(),
+        }, ensure_ascii=False, indent=2))
+
+
 def _default_entry(display_name: str) -> dict:
     """创建本地身份；抖音号/昵称均可变，不作为本地主键。"""
     return {
@@ -87,6 +110,9 @@ class LedgerVersionConflict(ValueError):
 
 
 def _mark_ambiguity(entries: list[dict]) -> None:
+    if recovery_required():
+        for entry in entries:
+            entry['ledger_recovery_required'] = True
     # 未出现在本次列表中的历史行不再把唯一当前会话判为同名冲突。
     current = [e for e in entries if e.get('observation_status') != 'not_observed']
     by_id = {e.get('entry_id'):e for e in entries}
@@ -144,31 +170,29 @@ def _parse_ledger_text(text: str) -> list[dict]:
 
 
 def _load_ledger_unlocked() -> list[dict]:
-    """读台账。文件不存在返回空列表（首次运行正常）；文件存在但解析失败时，
-    绝不静默返回空列表——那会导致 run_send 看到 0 个好友，一整晚不发却显示「正常」。
-    此时尝试上一份 .bak，仍失败才告警并返回空。"""
+    """Read current data, preserving a durable send block before any backup fallback."""
     if not LEDGER_PATH.exists():
-        # 进程若恰好在「主文件改名为 .bak」后、写入新主文件前退出，主文件会
-        # 缺失但备份完整。此时不能把台账误判为空。
         if LEDGER_BAK_PATH.exists():
+            _require_recovery("primary_missing")
             try:
                 entries = _parse_ledger_text(LEDGER_BAK_PATH.read_text(encoding="utf-8"))
-                logger.warning("ledger.json 缺失，已从 ledger.json.bak 恢复 %d 条好友", len(entries))
+                logger.warning("ledger.json 缺失，从备份读取 %d 条好友；发送历史可能不完整，已暂停发送", len(entries))
                 return entries
             except Exception as e:
-                logger.error("ledger.json.bak 解析失败（%s），按空台账处理", e)
+                logger.error("ledger.json.bak 解析失败（%s），发送恢复保护保持启用", e)
         return []
     try:
         return _parse_ledger_text(LEDGER_PATH.read_text(encoding="utf-8"))
     except Exception as e:
         logger.error("ledger.json 解析失败（%s），尝试读取备份 ledger.json.bak", e)
+    _require_recovery("primary_unreadable")
     if LEDGER_BAK_PATH.exists():
         try:
             entries = _parse_ledger_text(LEDGER_BAK_PATH.read_text(encoding="utf-8"))
-            logger.warning("已从 ledger.json.bak 恢复 %d 条好友", len(entries))
+            logger.warning("从备份读取 %d 条好友；发送历史可能不完整，已暂停发送", len(entries))
             return entries
         except Exception as e:
-            logger.error("ledger.json.bak 也解析失败（%s），本轮按空台账处理", e)
+            logger.error("ledger.json.bak 也解析失败（%s），发送恢复保护保持启用", e)
     return []
 
 
@@ -281,7 +305,7 @@ def merge_consumer_contacts(contacts: list[dict], *, capture: dict | None = None
 def legacy_import_allowed() -> bool:
     """Only a first-run ledger may inherit the legacy config selection."""
     with _lock:
-        return not LEDGER_PATH.exists() and not LEDGER_BAK_PATH.exists()
+        return not recovery_required() and not LEDGER_PATH.exists() and not LEDGER_BAK_PATH.exists()
 
 
 @_serialized_mutation
@@ -532,6 +556,8 @@ def set_selected(entries_in: list[dict]) -> dict:
 def begin_send_attempt(entry_id: str, *, force: bool = False, expected_display_name: str | None = None) -> str:
     """Durably claim a stable identity before the only message submission point."""
     entries = load_ledger()
+    if recovery_required():
+        raise IdentityConflict("台账从旧备份恢复或已损坏，发送历史待核对；恢复保护不能被强制发送绕过")
     target = resolve_entry(entries, entry_id=entry_id)
     if target is None or identity_block_reason(target):
         raise IdentityConflict("发送目标不存在或身份不明确，未提交消息")
