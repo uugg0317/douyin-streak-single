@@ -31,7 +31,7 @@ STATIC_DIR = BASE_DIR / "static"
 # 服务部署和桌面打包都可以把可写配置放到代码目录之外。未显式指定时，
 # 源码运行继续使用项目根目录 .env，保持向后兼容。
 # 版本号单一来源：发版只改这里；/api/health、/api/status 与前端界面均读取此值
-VERSION = "2.8"
+VERSION = "2.9"
 PID_PATH = DATA_DIR / "server.pid"  # 单实例锁文件：防旧实例 scheduler 残留再发消息
 # 允许用环境变量覆盖锁文件路径（测试/本地演练时避免抢占生产实例的锁）
 if os.environ.get("INSTANCE_LOCK_PATH", "").strip():

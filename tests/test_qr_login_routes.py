@@ -166,7 +166,12 @@ async def _request(method, path, *, data=None, headers=None, token=TOKEN, raw=No
             return JSONResponse(result,status_code=response.status_code,headers=response_headers)
         except HTTPException as exc:
             return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
-    async def cached(current):return await middleware.cache_policy(current,endpoint)
+    async def whitelist(current):
+        return await middleware.whitelist_ip_bypass(current,endpoint)
+    async def cookie_auth(current):
+        return await middleware.url_token_device_auth(current,whitelist)
+    async def cached(current):
+        return await middleware.cache_policy(current,cookie_auth)
     result=await middleware.api_origin_guard(req,cached)
     payload=result.body
     response_headers=dict(result.headers)
@@ -203,16 +208,16 @@ class QrRouteIntegrationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("qr-route-isolated-pass", result.stdout)
 
-    def test_configured_https_proxy_is_rejected_in_public_edition(self):
+    def test_configured_https_proxy_keeps_password_and_allows_qr(self):
         self.isolated("""
         os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
         headers={'Host':'console.example.com','Origin':'https://console.example.com',
                  'X-Forwarded-Proto':'https','X-Real-IP':'198.51.100.7'}
-        assert start(token=None,headers=headers)[0] == 403
+        assert start(token=None,headers=headers)[0] == 401
         assert not manager.calls
         status,data,_,_=start(headers=headers)
-        assert status==403, (status,data)
-        assert not manager.calls
+        assert status in (200,202), (status,data)
+        assert len(manager.calls)==1
         """)
 
     def test_wrong_proxy_protocol_remains_qr_403_with_valid_auth(self):
@@ -235,13 +240,27 @@ class QrRouteIntegrationTests(unittest.TestCase):
         assert _effective_origin(req) is None
         """)
 
-    def test_local_qr_start_needs_no_management_password(self):
+    def test_https_proxy_password_cookie_is_secure(self):
         self.isolated("""
-        status,data,headers,_=start(token=None)
-        assert status in (200,202)
-        assert len(manager.calls)==1
-        assert 'set-cookie' not in headers
-        assert data['job_token']==JOB_TOKEN
+        from routers.auth import api_auth_login
+        from http.cookies import SimpleCookie
+        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.com'
+        req=Request({'type':'http','scheme':'http','method':'POST','path':'/api/auth/login',
+                     'headers':[(b'host',b'console.example.com'),(b'x-forwarded-proto',b'https')],
+                     'client':('127.0.0.1',12345),'server':('127.0.0.1',8000)})
+        response=Response()
+        assert api_auth_login(response=response,request=req,body={'token':TOKEN})['ok']
+        cookie=SimpleCookie();cookie.load(response.headers['set-cookie'])
+        from auth_cookies import cookie_names
+        session_name = cookie_names()[0]
+        assert session_name == 'session_auth_token_8000'
+        assert cookie[session_name]['secure'] and cookie[session_name]['httponly']
+        """)
+
+    def test_unauthenticated_start_is_rejected_without_engine_start(self):
+        self.isolated("""
+        assert start(token=None)[0] == 401
+        assert not manager.calls
         """)
 
     def test_cleanup_retry_requires_same_origin_capability_and_exact_body(self):

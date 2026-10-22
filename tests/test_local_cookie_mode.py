@@ -55,10 +55,10 @@ class LocalCookieModeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("isolated-local-mode-pass", result.stdout)
 
-    def test_old_extract_is_gone_without_management_authentication(self):
+    def test_old_extract_requires_authentication_and_returns_gone(self):
         self.isolated("""
-        rejected(410, lambda: routes.api_credentials_extract(token=''))
-        rejected(410, lambda: routes.api_credentials_extract(token='wrong-dummy-token'))
+        rejected(401, lambda: routes.api_credentials_extract(token=''))
+        rejected(401, lambda: routes.api_credentials_extract(token='wrong-dummy-token'))
         rejected(410, lambda: routes.api_credentials_extract(token='local-export-test-management-token-not-real'))
         assert not app_common.run_lock.locked()
         """)
@@ -73,9 +73,10 @@ class LocalCookieModeTests(unittest.TestCase):
         assert not app_common.run_lock.locked()
         """)
 
-    def test_status_requires_no_management_password_and_reports_no_upload(self):
+    def test_status_requires_authentication_and_reports_no_upload(self):
         self.isolated("""
-        result = safe(routes.api_credentials_extract_status(token=''))
+        rejected(401, lambda: routes.api_credentials_extract_status(token=''))
+        result = safe(routes.api_credentials_extract_status(token='local-export-test-management-token-not-real'))
         assert result['mode'] == 'local-client'
         assert result['automatic_upload'] is False
         assert result['status'] == 'idle' and result['running'] is False and result['count'] == 0
@@ -83,7 +84,7 @@ class LocalCookieModeTests(unittest.TestCase):
 
     def test_old_screenshot_endpoint_is_gone_and_reads_no_disk_data(self):
         self.isolated("""
-        rejected(410, lambda: routes.api_credentials_extract_screenshot(token=''))
+        rejected(401, lambda: routes.api_credentials_extract_screenshot(token=''))
         with mock.patch('pathlib.Path.exists', side_effect=AssertionError('screenshot checked')), \\
              mock.patch('pathlib.Path.read_bytes', side_effect=AssertionError('screenshot read')), \\
              mock.patch('builtins.open', side_effect=AssertionError('private file read')):
@@ -92,7 +93,8 @@ class LocalCookieModeTests(unittest.TestCase):
 
     def test_helper_info_has_only_local_mode_metadata(self):
         self.isolated("""
-        result = safe(routes.api_local_helper_info(token=''))
+        rejected(401, lambda: routes.api_local_helper_info(token=''))
+        result = safe(routes.api_local_helper_info(token='local-export-test-management-token-not-real'))
         assert result['mode'] == 'local-client'
         assert result['helper_url'] == 'http://127.0.0.1:17653'
         assert result['automatic_upload'] is False and result['automatic_close'] is True

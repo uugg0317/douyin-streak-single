@@ -1,4 +1,4 @@
-"""T06：真实 ASGI 本机来源、旧配置拒绝与 QR 严格边界；只有合成台账，不执行账号任务。"""
+"""T06：真实 ASGI 守卫、API 别名与 QR 严格边界；只有合成台账，不执行账号任务。"""
 from __future__ import annotations
 
 import os
@@ -19,6 +19,7 @@ from fastapi import FastAPI, Header
 from fastapi.responses import Response
 from starlette.staticfiles import StaticFiles
 import auth_service as auth
+from auth_cookies import cookie_names
 import middleware
 from core import ledger
 from routers import auth as auth_routes, contacts_ledger, qr_credentials
@@ -72,7 +73,7 @@ async def invoke(method,path,*,headers=None,extra=None,token=TOKEN,cookie=None,b
     except (ValueError,UnicodeError):payload=None
     return start['status'],payload,start['headers']
 def request(*args,**kwargs):return asyncio.run(invoke(*args,**kwargs))
-def cookie():return 'legacy-device-cookie=ignored'
+def cookie():return cookie_names()[1]+'='+auth._issue_session(device=True)
 QR_HEADERS={**VALID,'X-Spark-QR-Request':'1'}
 QR_BODY={'request_id':'00000000-0000-4000-8000-000000000006'}
 qr_credentials._get_qr_manager=mock.Mock(side_effect=AssertionError('禁止真实浏览器'))
@@ -102,76 +103,147 @@ class RequestGuardTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("T06隔离验证通过", result.stdout)
 
-    def test_all_mutations_require_marker_and_same_origin(self):
-        self.isolated("""
+    def test_all_mutations_require_exact_marker_even_with_valid_cli_token(self):
+        self.isolated('''
         for method in ('POST','PUT','PATCH','DELETE','TRACE'):
             for value in (None,'','wrong','Sparkkeeper',' sparkkeeper','sparkkeeper '):
-                assert request(method,'/api/test-mutate',headers={'Origin':VALID['Origin'],'X-Requested-With':value})[0]==403
-            assert request(method,'/api/test-mutate',token=None,headers=VALID)[0]==200
+                status,_,_=request(method,'/api/test-mutate',headers={'Origin':VALID['Origin'],
+                    'X-Requested-With':value})
+                assert status==403,(method,value,status)
+            assert request(method,'/api/test-mutate',headers=VALID)[0]==200
         assert len(effects)==5
-        assert request('POST','/api/test-mutate',headers=MARK)[0]==403
-        """)
+        assert request('POST','/api/test-mutate')[0]==403
+        assert request('POST','/api/test-mutate',headers=MARK)[0]==200
+        ''')
 
-    def test_safe_methods_static_and_root_need_no_password(self):
-        self.isolated("""
+    def test_safe_methods_and_static_assets_do_not_require_marker(self):
+        self.isolated('''
         for method in ('GET','HEAD','OPTIONS'):
-            assert request(method,'/api/test-read',token=None)[0]==200
-        assert request('GET','/',token=None)[0]==200
+            assert request(method,'/api/test-read')[0]==200
+        assert request('GET','/')[0]==200
         assert request('GET','/static/favicon.ico',token=None)[0]==200
-        assert request('GET','/api/auth/mode',token=None)[1]['login_gate'] is False
-        """)
+        ''')
 
-    def test_origin_and_browser_metadata_are_required_even_with_legacy_tokens(self):
-        self.isolated("""
-        for headers in (MARK,{**MARK,'Origin':'https://evil.example.invalid'},{**MARK,'Origin':'null'},
-                        {**VALID,'Sec-Fetch-Site':'cross-site'},{**VALID,'Sec-Fetch-Site':'same-site'}):
-            assert request('POST','/api/test-mutate',cookie=cookie(),headers=headers)[0]==403
+    def test_marker_does_not_replace_cookie_origin_or_browser_metadata(self):
+        self.isolated('''
+        current=cookie()
+        for headers in (MARK,{**MARK,'Origin':'https://evil.example.invalid'},
+                        {**MARK,'Origin':'null'},
+                        {**VALID,'Sec-Fetch-Site':'cross-site'},
+                        {**VALID,'Sec-Fetch-Site':'same-site'}):
+            assert request('POST','/api/test-mutate',cookie=current,token=None,headers=headers)[0]==403
         assert not effects
-        assert request('POST','/api/test-mutate',token=None,cookie=cookie(),headers=VALID)[0]==200
-        assert request('POST','/api/test-mutate',token=None,headers={**MARK,'Sec-Fetch-Site':'same-origin'})[0]==200
-        """)
+        assert request('POST','/api/test-mutate',cookie=current,token=None,headers=VALID)[0]==200
+        assert request('POST','/api/test-mutate',cookie=current,token=None,
+                       headers={**MARK,'Sec-Fetch-Site':'same-origin'})[0]==200
+        ''')
 
-    def test_bad_host_or_nonlocal_peer_never_reaches_business_handlers(self):
-        self.isolated("""
-        for path,method in (('/','GET'),('/static/favicon.ico','GET'),('/api/test-read','GET'),('/api/test-mutate','POST')):
-            assert request(method,path,headers=VALID,peer='198.51.100.7')[0]==403
-            assert request(method,path,headers={**VALID,'Host':'evil.example.invalid','Origin':'http://evil.example.invalid'})[0]==403
-            assert request(method,path,headers={**VALID,'Host':'127.0.0.1:8001','Origin':'http://127.0.0.1:8001'})[0]==403
+    def test_invalid_current_cookie_blocks_cli_metadata_exemption(self):
+        self.isolated('''
+        invalid=cookie_names()[1]+'=invalid'
+        assert request('POST','/api/test-mutate',headers=MARK,cookie=invalid)[0]==403
+        assert request('POST','/api/test-mutate',headers=MARK,token='wrong')[0]==403
+        assert request('POST','/api/test-mutate',headers=VALID,token=None)[0]==401
         assert not effects
-        """)
+        ''')
 
-    def test_duplicate_security_headers_are_rejected(self):
-        self.isolated("""
-        for name,value in (('X-Requested-With','sparkkeeper'),('Host','127.0.0.1:8000'),('Origin',VALID['Origin']),('X-Auth-Token',TOKEN),('Sec-Fetch-Site','same-origin')):
+    def test_gate_off_and_ip_whitelist_do_not_bypass_marker_or_origin(self):
+        self.isolated('''
+        auth.LOGIN_GATE=False
+        middleware.WHITELIST_IPS={'127.0.0.1'}
+        assert request('POST','/api/ledger/selection',token=None,
+                       headers={'Origin':VALID['Origin']},body={'selected_names':['x']})[0]==403
+        assert request('POST','/api/ledger/selection',token=None,
+                       headers={**MARK,'Origin':'https://evil.example.invalid'},body={'selected_names':['x']})[0]==403
+        assert request('POST','/api/ledger/selection',token=None,
+                       headers=VALID,body={'selected_names':['x']})[0]==200
+        assert ledger.load_ledger()[0]['selected'] is True
+        ''')
+
+    def test_duplicate_security_headers_are_rejected_even_when_values_match(self):
+        self.isolated('''
+        for name,value in (('X-Requested-With','sparkkeeper'),('Host','127.0.0.1:8000'),
+                           ('Origin',VALID['Origin']),('X-Auth-Token',TOKEN),
+                           ('Sec-Fetch-Site','same-origin'),('X-Forwarded-Proto','http')):
             headers=dict(VALID)
             if name not in ('Host','X-Auth-Token'):headers[name]=value
-            assert request('POST','/api/test-mutate',headers=headers,extra=[(name,value)])[0]==403
+            assert request('POST','/api/test-mutate',headers=headers,extra=[(name,value)])[0]==403,name
         assert not effects
-        """)
+        ''')
 
-    def test_legacy_alias_proxy_and_whitelist_configuration_never_opens_external_access(self):
-        self.isolated("""
-        os.environ.update(ALLOWED_HOSTS='console.example.invalid,localhost:8000',QR_PUBLIC_ORIGIN='https://console.example.invalid',WHITELIST_IPS='198.51.100.7')
-        headers={**MARK,'Host':'console.example.invalid','Origin':'https://console.example.invalid','X-Forwarded-Proto':'https','X-Real-IP':'198.51.100.7'}
-        assert request('POST','/api/test-mutate',headers=headers)[0]==403
-        assert request('POST','/api/credentials/qr/start',headers={**headers,'X-Spark-QR-Request':'1'},body=QR_BODY)[0]==403
-        for name,value in [('X-Real-IP','127.0.0.1'),('X-Forwarded-For','127.0.0.1'),('X-Forwarded-Proto','http'),('X-Forwarded-Host','127.0.0.1:8000'),('Forwarded','for=127.0.0.1')]:
-            assert request('POST','/api/test-mutate',headers={**VALID,name:value})[0]==403
+    def test_explicit_api_alias_preserves_host_and_port_origin_checks(self):
+        self.isolated('''
+        os.environ['ALLOWED_HOSTS']=' console.example.invalid , api.example.invalid:8080 '
+        alias={**MARK,'Host':'console.example.invalid:9000','Origin':'http://console.example.invalid:9000'}
+        assert request('POST','/api/test-mutate',headers=alias)[0]==200
+        assert request('POST','/api/test-mutate',headers={**alias,'Origin':'http://console.example.invalid:9001'})[0]==403
+        explicit={**MARK,'Host':'api.example.invalid:8080','Origin':'http://api.example.invalid:8080'}
+        assert request('POST','/api/test-mutate',headers=explicit)[0]==200
+        assert request('POST','/api/test-mutate',headers={**explicit,'Host':'api.example.invalid:8081',
+                       'Origin':'http://api.example.invalid:8081'})[0]==403
+        assert request('POST','/api/test-mutate',headers={**VALID,'Host':'evil.example.invalid',
+                       'Origin':'http://evil.example.invalid'})[0]==403
+        assert len(effects)==2
+        ''')
+
+    def test_wildcards_paths_and_userinfo_never_grant_alias_access(self):
+        self.isolated('''
+        for allowed in ('*','*.example.invalid','http://console.example.invalid',
+                        'console.example.invalid/path','user@console.example.invalid',
+                        'console.example.invalid:999999'):
+            os.environ['ALLOWED_HOSTS']=allowed
+            headers={**MARK,'Host':'console.example.invalid','Origin':'http://console.example.invalid'}
+            assert request('POST','/api/test-mutate',headers=headers)[0]==403,allowed
         assert not effects
+        ''')
+
+    def test_alias_and_forwarded_headers_never_grant_nonlocal_peer_access(self):
+        self.isolated('''
+        os.environ['ALLOWED_HOSTS']='console.example.invalid'
+        headers={**MARK,'Host':'console.example.invalid','Origin':'http://console.example.invalid',
+                 'X-Real-IP':'127.0.0.1','X-Forwarded-For':'127.0.0.1','X-Forwarded-Proto':'http'}
+        assert request('POST','/api/test-mutate',headers=headers,peer='198.51.100.7')[0]==403
+        bad={**VALID,'X-Forwarded-Host':'console.example.invalid'}
+        assert request('POST','/api/test-mutate',headers=bad)[0]==403
+        assert not effects
+        ''')
+
+    def test_alias_does_not_infer_https_or_weaken_secure_cookie_contract(self):
+        self.isolated('''
+        os.environ['ALLOWED_HOSTS']='console.example.invalid'
+        proxy={**MARK,'Host':'console.example.invalid','Origin':'https://console.example.invalid',
+               'X-Forwarded-Proto':'https','X-Real-IP':'198.51.100.7'}
+        status,_,headers=request('POST','/api/auth/login',token=None,headers=proxy,body={'token':TOKEN})
+        assert status==403 and not any(name==b'set-cookie' for name,value in headers)
+        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.invalid'
+        status,_,headers=request('POST','/api/auth/login',token=None,headers=proxy,body={'token':TOKEN})
+        assert status==200
+        assert any(name==b'set-cookie' and b'; Secure' in value for name,value in headers)
+        ''')
+
+    def test_api_alias_never_relaxes_qr_public_origin_or_qr_marker(self):
+        self.isolated('''
+        os.environ['ALLOWED_HOSTS']='console.example.invalid'
+        alias={**QR_HEADERS,'Host':'console.example.invalid','Origin':'http://console.example.invalid'}
+        assert request('POST','/api/test-mutate',headers=alias)[0]==200
+        assert request('POST','/api/credentials/qr/start',headers=alias,body=QR_BODY)[0]==403
+        assert request('POST','/api/credentials/qr/start',headers=VALID,body=QR_BODY)[0]==403
+        assert request('POST','/api/credentials/qr/start',headers={**MARK,'X-Spark-QR-Request':'1'},body=QR_BODY)[0]==403
         qr_credentials._get_qr_manager.assert_not_called()
-        """)
+        ''')
 
-    def test_no_gate_does_not_weaken_qr_origin_or_job_contract(self):
-        self.isolated("""
-        for headers in (VALID,{**MARK,'X-Spark-QR-Request':'1'},{**QR_HEADERS,'Origin':'https://evil.example.invalid'}):
-            assert request('POST','/api/credentials/qr/start',token=None,headers=headers,body=QR_BODY)[0]==403
-        qr_credentials._get_qr_manager.assert_not_called()
-        """)
+    def test_configured_https_proxy_allows_real_business_write_only_with_full_contract(self):
+        self.isolated('''
+        os.environ['QR_PUBLIC_ORIGIN']='https://console.example.invalid'
+        headers={**MARK,'Host':'console.example.invalid','Origin':'https://console.example.invalid',
+                 'X-Forwarded-Proto':'https','X-Real-IP':'198.51.100.7'}
+        assert request('POST','/api/ledger/selection',headers=headers,body={'selected_names':['x']})[0]==200
+        for bad in ({**headers,'X-Requested-With':None},
+                    {**headers,'Origin':'https://evil.example.invalid'},
+                    {**headers,'X-Forwarded-Proto':'http'}):
+            assert request('POST','/api/ledger/selection',headers=bad,body={'selected_names':['x']})[0]==403
+        ''')
 
-    def test_local_business_write_without_management_token_remains_functional(self):
-        self.isolated("""
-        assert request('POST','/api/ledger/selection',token=None,headers=VALID,body={'selected_names':['x']})[0]==200
-        assert ledger.load_ledger()[0]['selected'] is True
-        """)
 
-if __name__=='__main__':unittest.main()
+if __name__ == '__main__':
+    unittest.main()

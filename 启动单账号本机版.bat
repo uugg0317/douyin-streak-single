@@ -7,6 +7,13 @@ set "ENV_FILE_PATH=%~dp0.env"
 set "HOST=127.0.0.1"
 set "PORT=8000"
 set "SPARKKEEPER_BACKGROUND_TASKS=0"
+set "LOGIN_GATE=on"
+set "PASSWORD_PUBLIC_LOGIN=on"
+rem This local entry point uses its own .env rather than stale inherited secrets.
+set "AUTH_TOKEN="
+set "URL_ACCESS_TOKEN="
+set "URL_PASSWORD_SALT="
+set "URL_PASSWORD_HASH="
 if not exist "%~dp0venv\Scripts\python.exe" (
   echo [错误] 未找到本项目的 venv\Scripts\python.exe。
   echo 请先双击同文件夹中的「安装依赖.bat」，安装完成后再启动。
@@ -19,7 +26,13 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo [版本] 单账号控制台 2.8（本机无密码门）
+"%~dp0venv\Scripts\python.exe" "%~dp0password_setup.py"
+if errorlevel 1 (
+  echo [停止] 密码配置未完成，服务尚未启动。
+  pause
+  exit /b 1
+)
+echo [版本] 单账号控制台 2.9（有密码门）
 echo [本机地址] http://127.0.0.1:8000/
 echo [运行模式] 后台定时任务暂停，可查看面板和手动操作。
 echo [停止服务] 按 Ctrl+C，运行期间保留此窗口。

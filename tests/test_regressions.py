@@ -25,6 +25,7 @@ os.environ["URL_PASSWORD_SALT"] = ""
 os.environ["URL_PASSWORD_HASH"] = ""
 
 import app_common  # noqa: E402
+import auth_service  # noqa: E402
 from auth_service import AUTH_TOKEN, _check_auth  # noqa: E402
 from core import ledger  # noqa: E402
 from core.config import load_config, save_config  # noqa: E402
@@ -38,6 +39,21 @@ from starlette.responses import Response  # noqa: E402
 from tasks_service import _collect_retry_names  # noqa: E402
 import session_service  # noqa: E402
 from core import config as cfg_mod  # noqa: E402
+from core import runtime as runtime_mod  # noqa: E402
+
+
+# 全量 discover 下 core.config / core.ledger / core.runtime 可能已先被其他
+# 测试文件导入，路径变量会固化到项目真实 data/。本模块的文件类测试一律钉回
+# 独立沙箱，避免测试数据写入项目 data（ledger/config/state/runtime 等）。
+cfg_mod.DATA_DIR = _ROOT / "data"
+cfg_mod.CONFIG_PATH = cfg_mod.DATA_DIR / "config.json"
+cfg_mod.STATE_PATH = cfg_mod.DATA_DIR / "state.json"
+ledger.DATA_DIR = cfg_mod.DATA_DIR
+ledger.LEDGER_PATH = ledger.DATA_DIR / "ledger.json"
+ledger.LEDGER_BAK_PATH = ledger.DATA_DIR / "ledger.json.bak"
+runtime_mod.DATA_DIR = cfg_mod.DATA_DIR
+runtime_mod.RUNTIME_PATH = runtime_mod.DATA_DIR / "runtime.json"
+runtime_mod.LOG_DIR = runtime_mod.DATA_DIR / "logs"
 
 
 def tearDownModule() -> None:  # noqa: N802 - unittest 固定钩子名
@@ -117,10 +133,11 @@ class ReliabilityTests(unittest.TestCase):
     def test_reset_never_releases_a_live_worker_lock(self) -> None:
         self.assertTrue(app_common.run_lock.acquire(blocking=False))
         try:
-            with self.assertRaises(HTTPException) as caught:
-                api_reset_running(token=AUTH_TOKEN)
-            self.assertEqual(caught.exception.status_code, 409)
-            self.assertTrue(app_common.run_lock.locked())
+            with mock.patch.object(auth_service, "AUTH_TOKEN", os.environ["AUTH_TOKEN"]):
+                with self.assertRaises(HTTPException) as caught:
+                    api_reset_running(token=os.environ["AUTH_TOKEN"])
+                self.assertEqual(caught.exception.status_code, 409)
+                self.assertTrue(app_common.run_lock.locked())
         finally:
             app_common.run_lock.release()
 
