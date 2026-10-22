@@ -93,6 +93,93 @@ class DeliveryDomTests(unittest.TestCase):
         assert page.evaluate('enters')==1
         ''')
 
+    def test_dry_run_observes_historical_markers_without_typing_or_exposing_message(self):
+        self.isolated('''
+        import json
+        from unittest.mock import patch
+        page.locator('#input').fill('synthetic existing draft')
+        page.locator('[data-message-id="old"]').evaluate("el=>el.setAttribute('data-message-id','private-history-id')")
+        page.locator('[data-message-text]').evaluate("el=>el.textContent='private historical message'")
+        with patch.object(A,'_type_and_send',side_effect=AssertionError('dry run must not type')), \
+             patch.object(A,'_confirm_delivery',side_effect=AssertionError('dry run must not confirm')):
+            assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
+        check=A._send_context.delivery_check
+        assert check=={'evidence':'observed','reason':'historical_markers_observed','observed_outgoing_count':1},check
+        encoded=json.dumps(check)
+        assert 'private-history-id' not in encoded and 'private historical message' not in encoded
+        assert page.locator('#input').inner_text()=='synthetic existing draft'
+        assert page.evaluate('total_enters')==page.evaluate('enters')==0
+        ''')
+
+    def test_dry_run_empty_or_unidentified_history_is_unverified_not_unsupported(self):
+        self.isolated('''
+        for mutation in ["history.innerHTML=''",
+                         "document.querySelector('[data-message-id]').removeAttribute('data-is-self')",
+                         "document.querySelector('[data-message-id]').removeAttribute('data-message-id')"]:
+            page.set_content(HTML)
+            page.evaluate(mutation.replace("history.innerHTML", "document.getElementById('history').innerHTML"))
+            assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
+            assert A._send_context.delivery_check=={'evidence':'unverified','reason':'no_observed_outgoing_markers','observed_outgoing_count':0}
+            assert page.evaluate('total_enters')==0
+        ''')
+
+    def test_dry_run_read_failure_stays_unverified_and_does_not_leak_raw_error(self):
+        self.isolated('''
+        import json
+        from unittest.mock import patch
+        from core.browser_errors import BrowserSessionUnavailable
+        for error in (RuntimeError('private raw browser details'),BrowserSessionUnavailable()):
+            with patch.object(A,'_delivery_snapshot',side_effect=error):
+                assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
+            assert A._send_context.delivery_check=={'evidence':'unverified','reason':'snapshot_failed','observed_outgoing_count':0}
+            assert 'private' not in json.dumps(A._send_context.delivery_check)
+        with patch.object(A,'_delivery_snapshot',return_value={'messages':[],'failures':[],'unavailable':True}):
+            assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
+        assert A._send_context.delivery_check['reason']=='snapshot_unavailable'
+        assert page.evaluate('total_enters')==0
+        ''')
+
+    def test_dry_run_visible_failed_or_pending_message_does_not_report_observed_readiness(self):
+        self.isolated('''
+        for state,reason in [('failed','visible_failure_signal'),('pending','pending_message_visible')]:
+            page.locator('[data-message-id="old"]').evaluate('(el,state)=>el.setAttribute("data-send-status",state)',state)
+            assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
+            assert A._send_context.delivery_check=={'evidence':'unverified','reason':reason,'observed_outgoing_count':1}
+        assert page.evaluate('total_enters')==0
+        ''')
+
+    def test_dry_run_each_friend_keeps_own_diagnostic_even_if_next_lookup_fails(self):
+        self.isolated('''
+        from unittest.mock import patch
+        from core import runtime
+        result={'dry_run':True,'ok':[],'ok_entries':[],'failed':[],'skipped':[],'deferred':[]}
+        original={'evidence':'unverified','reason':'outer-context','observed_outgoing_count':0}
+        A._send_context.delivery_check=original
+        def send(page,name,message,dry):
+            if name=='Gamma':return False,'synthetic lookup failure'
+            return A._send_message(page,message,dry,target_name=name)
+        with patch.object(A,'send_to_contact',side_effect=send), \
+             patch.object(A.ledger,'begin_send_attempt',side_effect=AssertionError('dry run must not create intent')), \
+             patch.object(A.ledger,'update_send_result',side_effect=AssertionError('dry run must not write send history')):
+            for name in ('Alpha','Beta','Gamma'):
+                page.set_content(HTML.replace('Same',name))
+                if name=='Beta':page.locator('#history').evaluate("el=>el.innerHTML=''")
+                entry=A.ledger._default_entry(name)
+                entry.update(selected=True,has_conversation=True)
+                A._send_consumer(page,entry,'fixture-message',True,result)
+                assert A._send_context.delivery_check is original
+                assert page.evaluate('total_enters')==0
+        checks=result['delivery_checks']
+        assert [check['name'] for check in checks]==['Alpha','Beta','Gamma'],checks
+        assert [check['evidence'] for check in checks]==['observed','unverified','unverified'],checks
+        assert [check['reason'] for check in checks]==['historical_markers_observed','no_observed_outgoing_markers','not_reached'],checks
+        assert [check['observed_outgoing_count'] for check in checks]==[1,0,0],checks
+        assert result['ok']==['Alpha','Beta'] and result['failed'][0]['name']=='Gamma'
+        runtime.record_run(result)
+        assert runtime.load_runtime()['last_run']['delivery_checks']==checks
+        assert not A.ledger.LEDGER_PATH.exists()
+        ''')
+
     def test_cleared_input_without_new_bubble_remains_unconfirmed(self):
         self.isolated('''
         page.evaluate("mode='empty'")

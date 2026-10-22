@@ -1233,6 +1233,35 @@ def _confirm_delivery(page, input_box, msg_text: str, baseline: dict, timeout: f
     raise MessageDeliveryUnconfirmed()
 
 
+def _dry_run_delivery_check(page, *, scope: _DeliveryScope) -> dict:
+    """Observe historical DOM markers only; never claim that a message was sent.
+
+    An empty/new conversation cannot demonstrate its outgoing-message layout.
+    Keep message text, message IDs and raw browser errors out of run results.
+    """
+    check = {"evidence": "unverified", "reason": "snapshot_unavailable",
+             "observed_outgoing_count": 0}
+    try:
+        snapshot = _delivery_snapshot(page, "", scope=scope)
+        if snapshot.get("unavailable"):
+            return check
+        messages = [message for message in snapshot["messages"]
+                    if isinstance(message, dict) and isinstance(message.get("id"), str)
+                    and message["id"].strip()]
+        check["observed_outgoing_count"] = len(messages)
+        if snapshot["failures"] or any(message.get("failed") for message in messages):
+            check["reason"] = "visible_failure_signal"
+        elif any(message.get("pending") for message in messages):
+            check["reason"] = "pending_message_visible"
+        elif messages:
+            check.update(evidence="observed", reason="historical_markers_observed")
+        else:
+            check["reason"] = "no_observed_outgoing_markers"
+    except Exception:
+        check["reason"] = "snapshot_failed"
+    return check
+
+
 def _send_message(page, msg_text: str, dry_run: bool, *, target_name: str = "") -> tuple[bool, str]:
     if detect_rate_limit(page):
         return False, "发送前检测到验证提示"
@@ -1243,6 +1272,7 @@ def _send_message(page, msg_text: str, dry_run: bool, *, target_name: str = "") 
         if not _delivery_scope_current(scope):
             raise MessageDeliveryUnconfirmed(enter_attempted=False)
         if dry_run:
+            _send_context.delivery_check = _dry_run_delivery_check(page, scope=scope)
             return True, "dry-run"
         baseline = _delivery_snapshot(page, msg_text, scope=scope)
         if baseline.get("unavailable"):
@@ -1426,6 +1456,10 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
     previous_intent = getattr(_send_context, "intent", None)
     intent = {"entry_id": key, "display_name":name, "attempt_id": "", "force": getattr(_send_context, "force", False)}
     _send_context.intent = None if dry_run else intent
+    previous_delivery_check = getattr(_send_context, "delivery_check", None)
+    if dry_run:
+        _send_context.delivery_check = {"evidence": "unverified", "reason": "not_reached",
+                                        "observed_outgoing_count": 0}
 
     def persist(ok, *, status=None):
         if not dry_run:
@@ -1506,6 +1540,11 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
                 result["failed"][-1]["retryable"] = False
     finally:
         _send_context.intent = previous_intent
+        if dry_run:
+            result.setdefault("delivery_checks", []).append({
+                "entry_id": key, "name": name, **_send_context.delivery_check,
+            })
+            _send_context.delivery_check = previous_delivery_check
         progress()
 
 
