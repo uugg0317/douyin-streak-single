@@ -1,6 +1,8 @@
 """Read-only DOM contract. Synthetic markers do not establish real-site support."""
 import json
+import re
 from .contact_identity import avatar_key
+from .streaks import parse_streak
 
 # Reserved for U01 B. Merely changing this flag does not implement unreviewed
 # absence inference; real fixtures and all relative-evidence checks are required.
@@ -126,6 +128,29 @@ BOTTOM_SETTLE_MS = 2500  # 到底后给延迟分页/资料加载留出稳定窗�
 STABLE_ROUNDS = 2
 
 
+def summarize_streaks(rows):
+    """Partition this scan's rows; special badges are not missing day readings.
+
+    These counts describe captured DOM evidence, not historical ledger values,
+    unique platform accounts, or proof that sending is currently possible.
+    """
+    counts = dict.fromkeys(('normal', 'rekindling', 'expiring', 'none', 'unknown'), 0)
+    for row in rows:
+        kind = 'unknown'
+        status, label = row.get('streak_status'), row.get('streak_label')
+        if status == 'confirmed' and not label and row.get('streak_source') in {'class', 'emoji'} and (parse_streak(row.get('streak')) or 0) > 0:
+            kind = 'normal'
+        elif status == 'none' and not label and row.get('streak_none_evidence') is True and row.get('streak_source') in {'class', 'emoji'}:
+            kind = 'none'
+        elif status == 'unknown' and row.get('streak') is None and isinstance(label, str):
+            if re.fullmatch(r'重燃中\s*[0-9]+\s*/\s*[0-9]+', label):
+                kind = 'rekindling'
+            elif re.fullmatch(r'[0-9]+\s*天后消失', label):
+                kind = 'expiring'
+        counts[kind] += 1
+    return counts
+
+
 def _indexed(rows):
     counts = {}
     indexed = {}
@@ -186,6 +211,7 @@ def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, prog
         page.wait_for_timeout(BOTTOM_SETTLE_MS if state.get('bottom') else SCROLL_SETTLE_MS)
     collected[:] = list(merged.values())
     return {'complete':complete, 'reason':reason, 'rounds':rounds, 'rows':len(collected),
+            'streak_counts':summarize_streaks(collected),
             'confirmed':sum(row.get('streak_status')=='confirmed' for row in collected),
             'unknown':sum(row.get('streak_status') in {'unknown','suspect'} for row in collected),
             'profiles_unresolved':profiles_unresolved, 'scroll_height':previous_height, 'platform_dom_verified':False}

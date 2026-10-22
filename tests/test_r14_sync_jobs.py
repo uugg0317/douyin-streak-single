@@ -65,6 +65,17 @@ class SyncJobTests(unittest.TestCase):
         self.assertTrue(result['contacts_error'])
         self.assertEqual(len(result['entries']),1)
 
+    def test_capture_breakdown_survives_merge_and_runtime_without_counting_history(self):
+        from core.contact_capture import summarize_streaks
+        contacts=[{'name':'新合成火花', 'streak':12, 'streak_status':'confirmed', 'streak_source':'class'}]
+        capture={'complete':False,'reason':'round_limit','rows':1,'streak_counts':summarize_streaks(contacts)}
+        self.start();self.finish({'names':contacts,'capture':capture,'error':None})
+        result=self.client.get('/api/ledger').json()
+        self.assertEqual(len(result['entries']),2)
+        self.assertEqual(result['contacts_capture'],capture)
+        self.assertEqual(result['contacts_capture']['rows'],1)
+        self.assertEqual(result['contacts_job_status'],'succeeded')
+
     def test_exception_and_merge_failure_cannot_report_success(self):
         for merge in [False,True]:
             with self.subTest(merge=merge):

@@ -2483,7 +2483,7 @@
               <p v-if="contactsSync.message" class="status-detail" role="status" aria-live="polite" aria-atomic="true">{{ contactsSync.message }}</p>
               <p v-if="contactsSync.error" class="status-detail" role="alert">同步错误：{{ contactsSync.error }}</p>
               <p v-if="contactsSync.updatedAt" class="status-detail">联系人更新时间：{{ contactsSyncTimeLabel }}</p>
-              <p class="status-detail" role="status" aria-live="polite">{{ captureMessage }}</p>
+              <p class="status-detail" role="status" aria-live="polite" aria-atomic="true">{{ captureMessage }}</p>
               <section v-if="streakResetCandidates.length" aria-label="火花重新开始待确认" style="background:rgba(0,0,0,.72);color:#fff;padding:16px;border-radius:12px;line-height:1.6;font-size:14px;margin:12px 0;">
                 <h3>火花可能已重新开始</h3>
                 <p>多次同步观察到较小读数，历史天数暂时保留。核对后再决定是否接受新读数。</p>
@@ -3224,9 +3224,26 @@
           if (row.observation_status === 'not_observed') return '本次未观察到' + (row.last_capture_complete ? '，可能已改名或不在列表中，请核实。' : '（列表范围未完整确认），请核实后再发送。');
           return '';
         };
-        const captureMessage = computed(() => contactsCapture.value?.complete === true
-          ? '本次已检查列表到底且多轮稳定；火花结果仍以各行确认状态为准。'
-          : '本次采集范围尚未确认完整，按部分观察处理；未出现的旧记录不代表已删除或改名。');
+        const captureSummary = computed(() => {
+          const capture = contactsCapture.value, counts = capture?.streak_counts;
+          const keys = ['normal', 'rekindling', 'expiring', 'none', 'unknown'];
+          if (!capture || !Number.isSafeInteger(capture.rows) || capture.rows < 0 || !counts ||
+              !keys.every(key => Number.isSafeInteger(counts[key]) && counts[key] >= 0) ||
+              keys.reduce((sum, key) => sum + counts[key], 0) !== capture.rows) return null;
+          return {rows:capture.rows, ...Object.fromEntries(keys.map(key => [key, counts[key]]))};
+        });
+        const captureMessage = computed(() => {
+          const capture = contactsCapture.value, count = captureSummary.value;
+          if (!capture) return '暂无扫描摘要；同步后将显示本轮读取数、火花分类及扫描范围。';
+          const summary = count
+            ? `最近一次扫描读取 ${count.rows} 条会话记录：正常火花 ${count.normal} · 重燃中 ${count.rekindling} · 即将消失 ${count.expiring} · 明确无火花 ${count.none} · 无法判断 ${count.unknown}。`
+            : '最近一次扫描未记录可核对的分类数量，可重新同步更新。';
+          if (capture.complete === true) return summary + ' 列表已到底且多轮稳定；扫描完整不代表每条火花均已确认，最终状态以台账各行为准。';
+          const reasons = {unknown_scroll_container:'未确认列表滚动区域', loading:'列表仍在加载',
+            profiles_unresolved:'部分好友资料尚未加载完成', round_limit:'已达到本轮扫描上限',
+            not_reported:'未返回扫描范围', unstable_rows:'连续读取结果尚未稳定'};
+          return summary + ` 扫描范围未确认完整（${reasons[capture.reason] || '未取得完整范围证据'}），按部分观察处理；未出现的旧记录不代表已删除或改名。`;
+        });
         const identityDecisionAllowed = computed(() => ledgerReady.value && !selectionDirty.value && !ledgerWriteBusy.value && !status.running && !status.stopping && !status.retry_dispatching && !syncing.value && !['running','unconfirmed'].includes(contactsSync.status));
         const streakDisplay = row => {
           const days = Number(row.streak_days ?? row.spark_days ?? 0);
@@ -3828,7 +3845,8 @@
                 // ledger; this task can finish without rolling that view back.
                 if ((readSequences.ledger || 0) === ledgerReadSequence) applySavedLedger(rows, data.ledger_version, selectionDirty.value || savingLedger.value);
                 contactsSync.status = 'succeeded';
-                contactsSync.message = `本次同步完成，当前台账 ${rows.length} 位好友，${rows.filter(hasCurrentStreak).length} 位带火花。`;
+                const scanned = captureSummary.value;
+                contactsSync.message = `本次同步完成，${scanned ? `本轮读取 ${scanned.rows} 条会话记录` : '本轮读取数未记录'}；台账合计 ${rows.length} 位好友（含历史），其中当前 ${rows.filter(hasCurrentStreak).length} 位带火花。`;
                 syncing.value = false;
                 showIOSBanner('同步完成', contactsSync.message);
                 return true;
@@ -4478,6 +4496,7 @@
           ledgerReady,
           sparkFriendCount,
           contactsCapture,
+          captureSummary,
           captureMessage,
           identityDescription,
           identityDecisionAllowed,
