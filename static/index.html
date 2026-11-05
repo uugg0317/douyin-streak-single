@@ -2414,6 +2414,7 @@
                   <el-button class="btn-action-fire" :disabled="status.running || status.stopping || status.retry_dispatching || status.ledger_recovery_required || ledgerWriteBusy || savingLedger || selectionDirty || !ledgerReady" @click="runStreak(false)">
                     {{ status.stopping ? '正在停止／结果待核对' : status.running ? '任务执行中...' : status.retry_dispatching ? '正在启动补发' : '立即续火花' }}
                   </el-button>
+                  <el-button v-if="status.ledger_recovery_required && !status.running && !status.stopping" @click="clearRecovery">我已核对，解除发送保护</el-button>
                   <el-button v-if="status.retry_status === 'manual' && status.pending_retry_count > 0" :disabled="!canContinuePending" :loading="pendingRetryBusy" @click="continuePending">继续未完成（{{ status.pending_retry_count }}）</el-button>
                   <span v-if="!status.stopping && !status.running && status.retry_dispatching" class="muted" style="font-size:12px;align-self:center;">正在启动补发，请等待后台任务更新</span>
                   <span v-if="!status.stopping && !status.retry_dispatching && status.retry_status === 'scheduled' && status.pending_retry_count > 0" class="muted" style="font-size:12px;align-self:center;">等待自动补发 {{ status.pending_retry_count }} 位</span>
@@ -2491,14 +2492,25 @@
               <p v-if="contactsSync.updatedAt" class="status-detail">联系人更新时间：{{ contactsSyncTimeLabel }}</p>
               <p class="status-detail" role="status" aria-live="polite" aria-atomic="true">{{ captureMessage }}</p>
               <section v-if="streakResetCandidates.length" aria-label="火花重新开始待确认" style="background:rgba(0,0,0,.72);color:#fff;padding:16px;border-radius:12px;line-height:1.6;font-size:14px;margin:12px 0;">
-                <h3>火花可能已重新开始</h3>
-                <p>多次同步观察到较小读数，历史天数暂时保留。核对后再决定是否接受新读数。</p>
+                <h3>火花读数变化待确认</h3>
+                <p>多次同步观察到与历史不一致的读数，历史天数暂时保留。核对后再决定是否接受新读数。</p>
                 <article v-for="item in streakResetCandidates" :key="item.entry_id" style="padding:12px 0;border-top:1px solid currentColor">
                   <p style="overflow-wrap:anywhere">{{ item.display_name }}：历史 {{ item.streak_days }} 天 → 新读数 {{ item.streak_suspect_value }} 天</p>
                   <p>{{ streakDetail(item) }}</p>
                   <div style="display:flex;gap:10px;flex-wrap:wrap">
                     <el-button style="min-height:44px;color:#fff!important;background:#353535!important;border-color:#aaa!important" :disabled="!identityDecisionAllowed || identitySendBlocked(item)" @click="reviewStreak(item,'accept')">接受新读数</el-button>
                     <el-button style="min-height:44px;color:#fff!important;background:#353535!important;border-color:#aaa!important" :disabled="!identityDecisionAllowed || identitySendBlocked(item)" @click="reviewStreak(item,'keep')">保持旧值</el-button>
+                  </div>
+                </article>
+              </section>
+              <section v-if="sendReviewCandidates.length" aria-label="发送结果待核对" style="background:rgba(0,0,0,.72);color:#fff;padding:16px;border-radius:12px;line-height:1.6;font-size:14px;margin:12px 0;">
+                <h3>发送结果待核对</h3>
+                <p>程序没能确认这些消息是否发出。请打开抖音看一眼聊天记录，再点对应按钮。当天未核对的不会重复发送；第二天会照常发送，不会让火花断掉。</p>
+                <article v-for="item in sendReviewCandidates" :key="item.entry_id" style="padding:12px 0;border-top:1px solid currentColor">
+                  <p style="overflow-wrap:anywhere">{{ item.display_name }}：{{ item.send_review_status === 'rejected' ? '页面提示发送失败' : '结果未确认' }}（{{ item.send_review_date || '日期未知' }}{{ item.send_review_blocks_today ? '，今天暂停重发' : '，已不影响今天发送' }}）</p>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <el-button style="min-height:44px;color:#fff!important;background:#353535!important;border-color:#aaa!important" :disabled="!identityDecisionAllowed" @click="reviewSend(item,'sent')">在抖音看到了，记为已发</el-button>
+                    <el-button style="min-height:44px;color:#fff!important;background:#353535!important;border-color:#aaa!important" :disabled="!identityDecisionAllowed" @click="reviewSend(item,'not_sent')">确认没发出，允许重发</el-button>
                   </div>
                 </article>
               </section>
@@ -2633,8 +2645,9 @@
                   <div style="padding: 10px 14px; background: var(--bg-surface-subtle); border: 1px solid var(--border-color); border-radius: 6px; font-size: 13.5px; color: var(--text-main); line-height: 1.6; white-space: pre-wrap;">{{ (config.messages || []).join('\n') || '—' }}</div>
                 </el-form-item>
 
-                <el-form-item label="定时任务开关">
-                  <el-switch v-model="config.auto_run_enabled" disabled active-text="开启每日自动定时执行" />
+                <el-form-item label="每日自动续火花">
+                  <el-switch v-model="config.auto_run_enabled" :disabled="savingConfig" active-text="每天到点自动发送；开机或启动服务时补上当天错过的一次" @change="saveConfigForm" />
+                  <p v-if="status.status_connected && config.auto_run_enabled && status.background_tasks_enabled === false" class="status-detail" role="status">开关已打开，但后台任务仍被启动参数或恢复保护暂停；请检查 .env 中 SPARKKEEPER_BACKGROUND_TASKS 是否为 0，或等待恢复暂停在次日解除。</p>
                 </el-form-item>
               </el-form>
             </div>

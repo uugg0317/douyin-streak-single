@@ -14,6 +14,7 @@ import unittest
 import urllib.error
 import urllib.request
 from unittest import mock
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from auth_cookies import cookie_names
 import test_auth_origin_boundary as origin_tests
 ROOT=Path(__file__).resolve().parents[1]

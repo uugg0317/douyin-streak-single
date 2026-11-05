@@ -13,7 +13,8 @@ fi
 python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else "需要 Python 3.10 及以上")'
 export HOST=127.0.0.1
 export PORT=8000
-export SPARKKEEPER_BACKGROUND_TASKS=0
+# 后台任务跟随网页“定时”页的“每日自动续火花”开关；不在这里强制关闭。
+unset SPARKKEEPER_BACKGROUND_TASKS
 export PYTHONUTF8=1
 export ENV_FILE_PATH="${ENV_FILE_PATH:-$SCRIPT_DIR/.env}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$SCRIPT_DIR/.cache/ms-playwright}"

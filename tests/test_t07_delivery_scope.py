@@ -108,7 +108,7 @@ class T07DeliveryScopeTests(unittest.TestCase):
                                    timeout=.8,quiet_window=.2,scope=scope)
         assert result==(True,'accepted')
         assert clock.now>=.2
-        A.time.time.assert_not_called();A._delivery_scope_current.assert_called_once_with(scope)
+        A.time.time.assert_not_called();A._delivery_scope_current.assert_called_once_with(scope, after_send=True, final=True)
         A.progress.assert_called_once()
         ''')
 

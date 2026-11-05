@@ -14,7 +14,8 @@ from functools import wraps
 from pathlib import Path
 
 from .config import DATA_DIR, atomic_write_text
-from .send_day import business_now, daily_skip_code
+from .restore_guard import marker_active
+from .send_day import business_now, daily_skip_code, open_intent
 from .streaks import parse_streak, observe_streak, apply_reset_decision, confirmation_age
 from .contact_identity import identity_block_reason, mark_observations, unresolved_send, avatar_key
 
@@ -45,12 +46,8 @@ def recovery_marker_path() -> Path:
 
 
 def recovery_required() -> bool:
-    """Presence is sufficient: a malformed/unreadable marker cannot lift protection."""
-    try:
-        recovery_marker_path().lstat()
-    except FileNotFoundError:
-        return False
-    return True
+    """恢复保护只在标记写入当天生效；内容损坏时按文件时间判断，不能凭坏内容解除。"""
+    return marker_active(recovery_marker_path())
 
 
 def _require_recovery(reason: str) -> None:
@@ -60,6 +57,52 @@ def _require_recovery(reason: str) -> None:
         atomic_write_text(recovery_marker_path(), json.dumps({
             "version": 1, "required": True, "reason": reason, "detected_at": _now(),
         }, ensure_ascii=False, indent=2))
+
+
+def _repair_primary_from_backup() -> bool:
+    """主台账缺失或损坏而备份可读时，用备份重建主台账；损坏原件改名保留。"""
+    try:
+        if LEDGER_PATH.exists():
+            _parse_ledger_text(LEDGER_PATH.read_text(encoding="utf-8"))
+            return True  # 主台账已可读，无需修复。
+    except (OSError, ValueError):
+        pass
+    try:
+        backup = LEDGER_BAK_PATH.read_text(encoding="utf-8")
+        _parse_ledger_text(backup)
+    except (OSError, ValueError):
+        return False
+    stamp = business_now().strftime("%Y%m%d-%H%M%S")
+    if LEDGER_PATH.exists():
+        LEDGER_PATH.replace(LEDGER_PATH.with_name(f"ledger.json.corrupt-{stamp}"))
+    atomic_write_text(LEDGER_PATH, backup)
+    return True
+
+
+def _archive_recovery_marker(note: str) -> bool:
+    """解除保护：先修复主台账，再把标记改名留档。修复失败时保留保护。"""
+    marker = recovery_marker_path()
+    try:
+        marker.lstat()
+    except FileNotFoundError:
+        return False
+    if not _repair_primary_from_backup() and (LEDGER_PATH.exists() or LEDGER_BAK_PATH.exists()):
+        # 主备都不可读：保持保护，等待重新同步写入新台账。
+        return False
+    stamp = business_now().strftime("%Y%m%d-%H%M%S")
+    marker.replace(marker.with_name(f"ledger-recovery-{note}-{stamp}.json"))
+    logger.warning("发送恢复保护已解除（%s），原标记已改名留档", note)
+    return True
+
+
+@_serialized_mutation
+def clear_recovery() -> dict:
+    """用户在抖音核对过发送历史后手动解除恢复保护。"""
+    if not recovery_required():
+        return {"cleared": False, **ledger_snapshot()}
+    if not _archive_recovery_marker("cleared"):
+        raise IdentityConflict("主台账和备份都无法读取，暂不能解除；请先重新同步好友生成新台账")
+    return {"cleared": True, **ledger_snapshot()}
 
 
 def _default_entry(display_name: str) -> dict:
@@ -110,9 +153,13 @@ class LedgerVersionConflict(ValueError):
 
 
 def _mark_ambiguity(entries: list[dict]) -> None:
-    if recovery_required():
-        for entry in entries:
+    # 每次读取都按当前标记重算，不能让保存过的旧标记在保护解除后继续阻止发送。
+    required = recovery_required()
+    for entry in entries:
+        if required:
             entry['ledger_recovery_required'] = True
+        else:
+            entry.pop('ledger_recovery_required', None)
     # 未出现在本次列表中的历史行不再把唯一当前会话判为同名冲突。
     current = [e for e in entries if e.get('observation_status') != 'not_observed']
     by_id = {e.get('entry_id'):e for e in entries}
@@ -127,10 +174,11 @@ def _mark_ambiguity(entries: list[dict]) -> None:
         e["identity_ambiguous"] = bool(e.get("identity_conflict") or duplicate)
         for candidate in e.get('rename_candidates') or []:
             old = by_id.get(candidate.get('old_entry_id'))
-            if old is not None:
-                protected = daily_skip_code(old)
-                candidate['unresolved_send'] = unresolved_send(old) or protected == 'unconfirmed_today'
-                candidate['protected_day'] = business_now().date().isoformat() if protected == 'already_sent_today' else None
+            # 旧记录已不存在时没有可保护的发送历史；保护标志按当天重算，跨天自动失效。
+            protected = daily_skip_code(old) if old is not None else None
+            candidate['unresolved_send'] = protected in {'unconfirmed_today', 'rejected_unreviewed'}
+            candidate['rejected_send'] = protected == 'rejected_unreviewed'
+            candidate['protected_day'] = business_now().date().isoformat() if protected == 'already_sent_today' else None
         e['send_block_reason'] = identity_block_reason(e)
 
 
@@ -171,6 +219,9 @@ def _parse_ledger_text(text: str) -> list[dict]:
 
 def _load_ledger_unlocked() -> list[dict]:
     """Read current data, preserving a durable send block before any backup fallback."""
+    if not recovery_required():
+        # 昨天及更早的保护已过期：先用备份修复主台账再留档，避免第二天又被同一处损坏重新拦住。
+        _archive_recovery_marker("expired")
     if not LEDGER_PATH.exists():
         if LEDGER_BAK_PATH.exists():
             _require_recovery("primary_missing")
@@ -341,6 +392,17 @@ def get_selected() -> list[dict]:
     return [e for e in load_ledger() if e.get("selected")]
 
 
+def send_review_view(entry, now=None) -> dict:
+    """给界面用：是否有待核对/被拒绝的发送、发生在哪天、是否还在阻止今天发送。"""
+    intent = open_intent(entry)
+    if intent is None:
+        return {"send_review_status": None, "send_review_date": None, "send_review_blocks_today": False}
+    status, day = intent
+    return {"send_review_status": "rejected" if status == "rejected" else "unconfirmed",
+            "send_review_date": day.isoformat() if day else None,
+            "send_review_blocks_today": daily_skip_code(entry, now=now) in {"unconfirmed_today", "rejected_unreviewed"}}
+
+
 def streak_confirmation_age(entry):
     return confirmation_age(entry,business_now())
 
@@ -369,10 +431,9 @@ def remove_entry(display_name: str = "", *, entry_id: str = "") -> bool:
 
 
 def _check_deletion_safe(entry: dict) -> None:
-    attempt = entry.get("send_attempt") or {}
-    if (attempt.get("status") in {"sending", "unconfirmed"}
-            or entry.get("last_status") in {"sending", "unconfirmed"}):
-        raise IdentityConflict("该好友存在发送中或待核对记录，不能删除；请保留台账并先人工核对发送结果")
+    # 只保护当天的未决发送；跨天记录不再阻止删除，避免好友永远删不掉。
+    if daily_skip_code(entry) in {"unconfirmed_today", "rejected_unreviewed"}:
+        raise IdentityConflict("该好友今天有发送中或待核对记录，不能删除；请先在抖音核对后点“核对结果”")
 
 
 @_serialized_mutation
@@ -523,6 +584,37 @@ def review_streak(entry_id: str, action: str, expected_version: str) -> dict:
 
 
 @_serialized_mutation
+def review_send(entry_id: str, action: str, expected_version: str) -> dict:
+    """Caller holds run_lock. 用户在抖音核对后记录结果：sent=确实发出，not_sent=没发出可重发。"""
+    snapshot = ledger_snapshot(expected_version)
+    entry = resolve_entry(snapshot['entries'], entry_id=entry_id)
+    if entry is None:
+        raise IdentityConflict('好友记录已变化，请刷新')
+    intent = open_intent(entry)
+    if intent is None and entry.get('last_status') not in {'unconfirmed', 'rejected'}:
+        raise IdentityConflict('该好友没有待核对的发送记录')
+    attempt = entry.get('send_attempt') or {}
+    when = business_now().isoformat(timespec='seconds')
+    attempted_at = (attempt.get('started_at') if intent is not None and attempt.get('status') in {'sending','unconfirmed','rejected'}
+                    else None) or entry.get('last_unconfirmed_at') or entry.get('last_attempt_at') or when
+    if action == 'sent':
+        if attempt:
+            attempt.update(status='accepted', reviewed_at=when, review='user_confirmed_sent')
+        entry.update(last_status='success', last_ok=True, last_sent_at=attempted_at, last_unconfirmed_at=None)
+    elif action == 'not_sent':
+        if attempt:
+            attempt.update(status='not_sent', reviewed_at=when, review='user_confirmed_not_sent')
+        entry.update(last_status='failed', last_ok=False, last_unconfirmed_at=None)
+    else:
+        raise IdentityConflict('未知核对动作')
+    entry.setdefault('send_reviews', []).append({'at': when, 'action': action, 'attempted_at': attempted_at})
+    entry['send_reviews'] = entry['send_reviews'][-10:]
+    _mark_ambiguity(snapshot['entries'])
+    _save(snapshot['entries'])
+    return {'ok': True, 'action': action, **ledger_snapshot()}
+
+
+@_serialized_mutation
 def set_selected(entries_in: list[dict]) -> dict:
     entries = load_ledger()
     updated = added = 0
@@ -559,14 +651,19 @@ def begin_send_attempt(entry_id: str, *, force: bool = False, expected_display_n
     if recovery_required():
         raise IdentityConflict("台账从旧备份恢复或已损坏，发送历史待核对；恢复保护不能被强制发送绕过")
     target = resolve_entry(entries, entry_id=entry_id)
+    if target is not None and daily_skip_code(target) == "rejected_unreviewed":
+        raise IdentityConflict("该好友有明确拒绝但尚未核对的发送记录，不能强制重发")
     if target is None or identity_block_reason(target):
         raise IdentityConflict("发送目标不存在或身份不明确，未提交消息")
     if expected_display_name is not None and target.get('display_name') != expected_display_name:
         raise IdentityConflict('好友名称已变更，拒绝旧任务提交；请刷新并确认身份')
     previous = target.get("send_attempt") or {}
-    if previous.get("status") in {"sending", "unconfirmed"} and not force:
-        raise IdentityConflict("该好友有未核对的发送意图，不能自动重试")
+    if daily_skip_code(target) == "unconfirmed_today" and not force:
+        raise IdentityConflict("该好友今天有未核对的发送意图，不能自动重试")
     when = business_now()
+    if open_intent(target) is not None:
+        # 跨天的未决意图不再阻止今天发送，但留档以便事后核对。
+        target["expired_send_attempt"] = {**previous, "expired_at": when.isoformat(timespec="seconds")}
     attempt_id = uuid.uuid4().hex
     target["send_attempt"] = {"attempt_id": attempt_id, "entry_id": entry_id,
                               "business_date": when.date().isoformat(), "status": "sending",
@@ -605,10 +702,16 @@ def update_send_result(display_name: str, ok: bool, at: str | None = None,
     if target is not None:
         when = at or _now()
         outcome = status or ("success" if ok else "failed")
-        if outcome not in {"success", "failed", "unconfirmed", "rejected"}:
+        if outcome not in {"success", "failed", "not_attempted", "unconfirmed", "rejected"}:
             raise ValueError("无效发送状态")
+        if daily_skip_code(target) == "rejected_unreviewed" and outcome != "rejected":
+            raise IdentityConflict("明确拒绝记录尚未核对，不能被后续任务覆盖")
+        if outcome == "not_attempted" and (attempt_id or
+                daily_skip_code(target) in {"unconfirmed_today", "rejected_unreviewed"}):
+            raise IdentityConflict("今天已有持久发送意图，不能改记为未提交")
         if attempt_id:
-            target["send_attempt"].update(status="accepted" if outcome == "success" else "unconfirmed", finished_at=when)
+            intent_status = "accepted" if outcome == "success" else "rejected" if outcome == "rejected" else "unconfirmed"
+            target["send_attempt"].update(status=intent_status, finished_at=when)
         target.update(last_attempt_at=when, last_ok=True if outcome == "success" else None if outcome == "unconfirmed" else False,
                       last_status=outcome)
         if outcome == "unconfirmed":

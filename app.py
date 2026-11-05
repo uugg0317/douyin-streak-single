@@ -46,23 +46,21 @@ async def lifespan(_app: FastAPI):
     recovered = ledger.recover_interrupted_attempts()
     if recovered:
         logger.warning("已将 %s 条中断发送转为待核对，不会自动重发", recovered)
-    background_enabled = scheduler.background_tasks_enabled()
-    catch_up_task = None
     catch_up_stop = threading.Event()
-    if background_enabled:
+    catch_up_tasks: list[asyncio.Task] = []
+    loop = asyncio.get_running_loop()
+
+    def schedule_catch_up() -> None:
+        if not catch_up_stop.is_set():
+            catch_up_tasks.append(asyncio.create_task(_check_startup_catch_up(catch_up_stop),
+                                                      name="startup-catch-up"))
+
+    def start_background() -> None:
         # 配置体系统一：把旧 data/email_config.json 一次性迁移到 .env / config.json
         try:
             migrate_legacy_email_config()
         except Exception as e:
             logger.warning("旧邮箱配置迁移异常（不影响启动）：%s", e)
-    # 本进程可能是看门狗判定卡死后由 systemd 拉起的：清理上个进程残留的
-    # running / 发送进度状态，避免前端一直显示「进行中」
-    set_running(False)
-    try:
-        update_runtime(send_progress=None)
-    except Exception:
-        pass
-    if background_enabled:
         try:
             scheduler.configure(
                 lambda: _start_run(False),
@@ -73,10 +71,29 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("调度器启动失败: %s", e)
         _start_watchdog()
-        # 独立线程检查补跑，不在 API 事件循环内执行文件检查、启动器或发信。
-        catch_up_task = asyncio.create_task(_check_startup_catch_up(catch_up_stop), name="startup-catch-up")
-    else:
-        logger.info("本机控制台已启动：后台定时发送、采集、预启动、体检和看门狗均暂停（SPARKKEEPER_BACKGROUND_TASKS=0）。")
+        # 检查今天是否错过定时发送：检查本身在独立线程执行，不阻塞接口处理。
+        # 服务启动时直接排入事件循环；网页打开开关时从请求线程转交给事件循环。
+        try:
+            in_loop = asyncio.get_running_loop() is loop
+        except RuntimeError:
+            in_loop = False
+        if in_loop:
+            schedule_catch_up()
+        else:
+            loop.call_soon_threadsafe(schedule_catch_up)
+
+    # 本进程可能是看门狗判定卡死后由 systemd 拉起的：清理上个进程残留的
+    # running / 发送进度状态，避免前端一直显示「进行中」
+    set_running(False)
+    try:
+        update_runtime(send_progress=None)
+    except Exception:
+        pass
+    # 网页里的“每日自动续火花”开关打开后，会通过同一个入口立即启动后台任务。
+    scheduler.set_background_starter(start_background)
+    if not scheduler.ensure_background_started():
+        logger.info("本机控制台已启动：每日自动续火花未开启，后台定时发送、采集、预启动、体检和看门狗暂停；"
+                    "可在网页“定时”页打开开关。")
     restore_retry_plan()
     try:
         yield
@@ -86,8 +103,8 @@ async def lifespan(_app: FastAPI):
         automation.request_send_stop("服务正在退出；未确认结束前不会启动新的发送，请等待或退出后重启。")
         try:
             # 不取消仍在运行的 to_thread：取消协程不能停底层线程，必须先等检查结束。
-            if catch_up_task is not None:
-                await catch_up_task
+            for task in list(catch_up_tasks):
+                await task
             await asyncio.to_thread(qr_credentials_router.shutdown_qr_login)
         finally:
             scheduler.shutdown()

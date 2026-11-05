@@ -104,7 +104,7 @@ class DeliveryDomTests(unittest.TestCase):
              patch.object(A,'_confirm_delivery',side_effect=AssertionError('dry run must not confirm')):
             assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
         check=A._send_context.delivery_check
-        assert check=={'evidence':'observed','reason':'historical_markers_observed','observed_outgoing_count':1},check
+        assert check=={'evidence':'observed','reason':'historical_markers_observed','observed_outgoing_count':1,'history_text_matches':0},check
         encoded=json.dumps(check)
         assert 'private-history-id' not in encoded and 'private historical message' not in encoded
         assert page.locator('#input').inner_text()=='synthetic existing draft'
@@ -119,7 +119,7 @@ class DeliveryDomTests(unittest.TestCase):
             page.set_content(HTML)
             page.evaluate(mutation.replace("history.innerHTML", "document.getElementById('history').innerHTML"))
             assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
-            assert A._send_context.delivery_check=={'evidence':'unverified','reason':'no_observed_outgoing_markers','observed_outgoing_count':0}
+            assert A._send_context.delivery_check=={'evidence':'unverified','reason':'no_observed_outgoing_markers','observed_outgoing_count':0,'history_text_matches':0}
             assert page.evaluate('total_enters')==0
         ''')
 
@@ -131,7 +131,7 @@ class DeliveryDomTests(unittest.TestCase):
         for error in (RuntimeError('private raw browser details'),BrowserSessionUnavailable()):
             with patch.object(A,'_delivery_snapshot',side_effect=error):
                 assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
-            assert A._send_context.delivery_check=={'evidence':'unverified','reason':'snapshot_failed','observed_outgoing_count':0}
+            assert A._send_context.delivery_check=={'evidence':'unverified','reason':'snapshot_failed','observed_outgoing_count':0,'history_text_matches':0}
             assert 'private' not in json.dumps(A._send_context.delivery_check)
         with patch.object(A,'_delivery_snapshot',return_value={'messages':[],'failures':[],'unavailable':True}):
             assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
@@ -144,7 +144,7 @@ class DeliveryDomTests(unittest.TestCase):
         for state,reason in [('failed','visible_failure_signal'),('pending','pending_message_visible')]:
             page.locator('[data-message-id="old"]').evaluate('(el,state)=>el.setAttribute("data-send-status",state)',state)
             assert A._send_message(page,'fixture-message',True,target_name='Same')==(True,'dry-run')
-            assert A._send_context.delivery_check=={'evidence':'unverified','reason':reason,'observed_outgoing_count':1}
+            assert A._send_context.delivery_check=={'evidence':'unverified','reason':reason,'observed_outgoing_count':1,'history_text_matches':0}
         assert page.evaluate('total_enters')==0
         ''')
 
@@ -153,7 +153,7 @@ class DeliveryDomTests(unittest.TestCase):
         from unittest.mock import patch
         from core import runtime
         result={'dry_run':True,'ok':[],'ok_entries':[],'failed':[],'skipped':[],'deferred':[]}
-        original={'evidence':'unverified','reason':'outer-context','observed_outgoing_count':0}
+        original={'evidence':'unverified','reason':'outer-context','observed_outgoing_count':0,'history_text_matches':0}
         A._send_context.delivery_check=original
         def send(page,name,message,dry):
             if name=='Gamma':return False,'synthetic lookup failure'

@@ -24,6 +24,7 @@ os.environ["URL_ACCESS_TOKEN"] = ""
 os.environ["URL_PASSWORD_SALT"] = ""
 os.environ["URL_PASSWORD_HASH"] = ""
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import app_common  # noqa: E402
 import auth_service  # noqa: E402
 from auth_service import AUTH_TOKEN, _check_auth  # noqa: E402
@@ -217,13 +218,23 @@ class StatePathTests(unittest.TestCase):
 
 
 class LocalBackgroundModeTests(unittest.TestCase):
-    def test_background_switch_defaults_off_and_requires_opt_in(self):
+    def test_background_switch_follows_web_toggle_unless_environment_forces_it(self):
         from core import scheduler
-        with mock.patch.dict(os.environ, {}, clear=True):
+        # 未设置环境变量时跟随网页“每日自动续火花”开关（config.auto_run_enabled）。
+        for enabled in (False, True):
+            with mock.patch.dict(os.environ, {}, clear=True), \
+                 mock.patch.object(scheduler, "load_config", return_value={"auto_run_enabled": enabled}):
+                self.assertIs(scheduler.background_tasks_enabled(), enabled)
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(scheduler, "load_config", side_effect=OSError("synthetic config read failure")):
             self.assertFalse(scheduler.background_tasks_enabled())
         for value in ("0", "false", "off", "no"):
-            with mock.patch.dict(os.environ, {"SPARKKEEPER_BACKGROUND_TASKS": value}):
+            with mock.patch.dict(os.environ, {"SPARKKEEPER_BACKGROUND_TASKS": value}), \
+                 mock.patch.object(scheduler, "load_config", return_value={"auto_run_enabled": True}):
                 self.assertFalse(scheduler.background_tasks_enabled())
+        with mock.patch.dict(os.environ, {"SPARKKEEPER_BACKGROUND_TASKS": "1"}), \
+             mock.patch.object(scheduler, "load_config", return_value={"auto_run_enabled": False}):
+            self.assertTrue(scheduler.background_tasks_enabled())
 
     def test_local_lifespan_skips_account_jobs_and_config_migration(self):
         import app

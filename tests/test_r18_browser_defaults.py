@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import automation, browser
 from desktop import build
 import startup_check

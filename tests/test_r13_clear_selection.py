@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import automation, ledger
 from fastapi import FastAPI
 from models import SelectionBody

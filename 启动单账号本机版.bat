@@ -7,7 +7,8 @@ set "PYTHONUTF8=1"
 if not defined ENV_FILE_PATH set "ENV_FILE_PATH=%~dp0.env"
 set "HOST=127.0.0.1"
 set "PORT=8000"
-set "SPARKKEEPER_BACKGROUND_TASKS=0"
+rem 后台任务跟随网页“定时”页的“每日自动续火花”开关；不在这里强制关闭。
+set "SPARKKEEPER_BACKGROUND_TASKS="
 rem This local entry point uses its own .env rather than stale inherited secrets.
 set "AUTH_TOKEN="
 set "URL_ACCESS_TOKEN="
@@ -33,7 +34,7 @@ if errorlevel 1 (
 )
 "%~dp0venv\Scripts\python.exe" "%~dp0tools\version_info.py"
 echo [本机地址] http://127.0.0.1:8000/
-echo [运行模式] 后台定时任务暂停，可查看面板和手动操作。
+echo [运行模式] 每日自动续火花跟随网页“定时”页开关；关闭时只手动操作。
 echo [停止服务] 按 Ctrl+C，运行期间保留此窗口。
 "%~dp0venv\Scripts\python.exe" "%~dp0app.py"
 set "SPARKKEEPER_EXIT=%ERRORLEVEL%"

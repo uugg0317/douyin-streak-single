@@ -19,6 +19,8 @@ from models import (
     LedgerBody,
     SelectionBody,
     IdentityDecisionBody,
+    RecoveryClearBody,
+    SendReviewBody,
     StreakDecisionBody,
 )
 from tasks_service import _start_fetch_contacts, _start_harvest_creator
@@ -61,6 +63,38 @@ def api_identity_decision(body: IdentityDecisionBody, token: str = Header(defaul
         app_common.run_lock.release()
 
 
+@router.post('/api/ledger/send-review')
+def api_send_review(body: SendReviewBody, token: str = Header(default='', alias='X-Auth-Token')) -> dict:
+    """用户在抖音核对待核对/被拒绝的发送后记录结果，解除该好友的阻塞。"""
+    _check_auth(token)
+    if not app_common.run_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail='已有任务在运行，请结束后再核对发送结果')
+    try:
+        return ledger.review_send(body.entry_id, body.action, body.expected_ledger_version)
+    except (ledger.IdentityConflict, ledger.LedgerVersionConflict) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=503, detail='台账保存失败，核对结果未记录，请刷新后重试') from None
+    finally:
+        app_common.run_lock.release()
+
+
+@router.post('/api/ledger/recovery-clear')
+def api_recovery_clear(body: RecoveryClearBody, token: str = Header(default='', alias='X-Auth-Token')) -> dict:
+    """用户核对发送历史后手动解除当天的恢复保护（次日也会自动解除）。"""
+    _check_auth(token)
+    if not app_common.run_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail='已有任务在运行，请结束后再解除保护')
+    try:
+        return {'ok': True, **ledger.clear_recovery()}
+    except ledger.IdentityConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=503, detail='台账修复失败，保护保持启用，请稍后重试') from None
+    finally:
+        app_common.run_lock.release()
+
+
 @router.get("/api/contacts")
 def api_contacts(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
     _check_auth(token)
@@ -96,7 +130,8 @@ def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
     _check_auth(token)
     rt = load_runtime()
     snapshot = ledger.ledger_snapshot()
-    entries = [{**entry,**ledger.streak_confirmation_age(entry)} for entry in snapshot["entries"]]
+    entries = [{**entry,**ledger.streak_confirmation_age(entry),**ledger.send_review_view(entry)}
+               for entry in snapshot["entries"]]
     contacts = []
     for e in entries:
         name = e.get("display_name") or e.get("nickname") or ""
@@ -113,6 +148,7 @@ def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
             **{key:e.get(key) for key in ('streak_confirmed_date','streak_unconfirmed_days','streak_may_be_stale')},
             **{key:e.get(key) for key in ('streak_suspect_value','streak_suspect_since','streak_suspect_count','streak_reset_dismissed_until','streak_previous_days','streak_reset_accepted_at')},
             **{key:e.get(key) for key in ('observation_status','observation_at','last_capture_complete','identity_review_pending','rename_candidates','send_block_reason')},
+            **{key:e.get(key) for key in ('send_review_status','send_review_date','send_review_blocks_today')},
             "selected": bool(e.get("selected", False)),
             # last_status 取真实结果，失败也会写 last_sent_at，不能据此判成功
             "last_status": e.get("last_status") or ("success" if e.get("last_sent_at") else "pending"),

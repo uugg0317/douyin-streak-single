@@ -89,32 +89,59 @@ class LedgerRecoveryTests(unittest.TestCase):
 
     def test_unknown_persists_review_state_over_old_success_and_keeps_attempt_meaning(self):
         self.isolated('''
-        for entered in (True,False):
-            entry=seed(['待核对合成好友'])[0]
-            old_sent=entry['last_sent_at']
-            R.update_runtime(consecutive_failures=7,session_status='ok',session_checked_at=123)
-            error=MessageDeliveryUnconfirmed() if entered else MessageDeliveryUnconfirmed(enter_attempted=False)
-            A.send_to_contact=mock.Mock(side_effect=error)
-            outcome=result()
-            A._send_consumer(object(),entry,'合成消息',False,outcome)
-            row=L.load_ledger()[0]
-            assert row['last_status']=='unconfirmed' and row['last_ok'] is None
-            assert row['last_unconfirmed_at']==A._now()==row['last_attempt_at']
-            assert row['last_sent_at']==old_sent and row['last_msg']=='旧成功文案'
-            assert outcome['skipped'][0]['entry_id']==entry['entry_id']
-            assert outcome['skipped'][0]['code']=='delivery_unconfirmed'
-            assert outcome['skipped'][0]['retryable'] is False
-            assert outcome['skipped'][0]['enter_attempted'] is entered
-            if not entered:assert '未尝试' in outcome['skipped'][0]['reason']
-            finish(outcome)
-            assert R.load_runtime()['consecutive_failures']==7
-            assert R.load_runtime()['session_checked_at']==123
-            assert not R.load_runtime()['pending_retry_entries']
-            from routers import contacts_ledger
-            public=contacts_ledger.api_ledger(token=auth_service.AUTH_TOKEN)
-            assert public['entries'][0]['last_status']=='unconfirmed'
-            assert public['contacts'][0]['last_status']=='unconfirmed'
+        entry=seed(['待核对合成好友'])[0]
+        old_sent=entry['last_sent_at']
+        R.update_runtime(consecutive_failures=7,session_status='ok',session_checked_at=123)
+        A.send_to_contact=mock.Mock(side_effect=MessageDeliveryUnconfirmed())
+        outcome=result()
+        A._send_consumer(object(),entry,'合成消息',False,outcome)
+        row=L.load_ledger()[0]
+        assert row['last_status']=='unconfirmed' and row['last_ok'] is None
+        assert row['last_unconfirmed_at']==A._now()==row['last_attempt_at']
+        assert row['last_sent_at']==old_sent and row['last_msg']=='旧成功文案'
+        assert outcome['skipped'][0]['entry_id']==entry['entry_id']
+        assert outcome['skipped'][0]['code']=='delivery_unconfirmed'
+        assert outcome['skipped'][0]['retryable'] is False
+        assert outcome['skipped'][0]['enter_attempted'] is True
+        finish(outcome)
+        assert R.load_runtime()['consecutive_failures']==7
+        assert R.load_runtime()['session_checked_at']==123
+        assert not R.load_runtime()['pending_retry_entries']
+        from routers import contacts_ledger
+        public=contacts_ledger.api_ledger(token=auth_service.AUTH_TOKEN)
+        assert public['entries'][0]['last_status']=='unconfirmed'
+        assert public['contacts'][0]['last_status']=='unconfirmed'
         S.schedule_retry.assert_not_called()
+        ''')
+
+    def test_unconfirmed_without_page_change_continues_with_next_friend(self):
+        self.isolated('''
+        seed(['首位合成好友','次位合成好友'])
+        attempted=[]
+        def send(page,name,message,dry):
+            attempted.append(name)
+            if len(attempted)==1:
+                raise A._unconfirmed('no_new_message')
+            return True,'accepted_own_row'
+        A.send_to_contact=mock.Mock(side_effect=send)
+        outcome=A._run_send_impl(dry_run=False)
+        assert attempted==['首位合成好友','次位合成好友'],attempted
+        assert outcome['skipped'][0]['diagnostic']=='no_new_message'
+        assert [row['name'] for row in outcome['ok_entries']]==['次位合成好友']
+        assert not outcome['deferred'] and 'halt_batch' not in outcome
+        ''')
+
+    def test_unconfirmed_after_page_change_still_halts_the_batch(self):
+        self.isolated('''
+        seed(['首位合成好友','次位合成好友'])
+        attempted=[]
+        def send(page,name,message,dry):
+            attempted.append(name)
+            raise A._unconfirmed('scope_changed')
+        A.send_to_contact=mock.Mock(side_effect=send)
+        outcome=A._run_send_impl(dry_run=False)
+        assert attempted==['首位合成好友'],attempted
+        assert [row['name'] for row in outcome['deferred']]==['次位合成好友']
         ''')
 
     def test_same_day_unknown_is_skipped_before_credentials_for_all_normal_entry_paths(self):

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Header
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from app_common import logger
 from auth_service import _check_auth
 from core import scheduler
 from core.config import DEFAULT_CONFIG, LOCKED_FIELDS, LockedConfigChange, load_config, save_config
@@ -63,4 +64,9 @@ def api_config_save(body: dict = Body(...), token: str = Header(default="", alia
         })
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # 打开“每日自动续火花”后立即启动后台任务（含今天错过时的补跑），无需重启服务。
+    try:
+        scheduler.ensure_background_started()
+    except Exception:
+        logger.exception("后台任务启动失败，请重启服务后再试")
     return {"ok": True, "config": cfg, "locked_fields": list(LOCKED_FIELDS), "effective_config": cfg}

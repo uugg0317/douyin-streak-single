@@ -270,7 +270,8 @@ def _collect_retry_entries(result: dict) -> list[dict]:
                 continue
             if (name in resolved_names or name in blocked_names
                     or item.get("retryable") is False
-                    or item.get("code") in {"delivery_unconfirmed", "delivery_rejected", "identity_ambiguous"}
+                    or item.get("code") in {"delivery_unconfirmed", "delivery_rejected", "rejected_unreviewed",
+                                             "related_send_rejected", "identity_ambiguous"}
                     or (field == "failed" and item.get("retryable") is not True)):
                 continue
             entry_id = str(item.get("entry_id") or "")

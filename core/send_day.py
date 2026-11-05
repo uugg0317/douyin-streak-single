@@ -34,21 +34,48 @@ def timestamp_date(value: object) -> date | None:
         return None
 
 
-def daily_skip_code(entry: dict, *, now: datetime | None = None) -> str | None:
-    """仅判断当日保护原因；干跑与显式 force 由调用方决定是否应用。"""
-    # New durable intents remain unresolved across midnight until an explicit
-    # force operation confirms the user's decision; a date change is no evidence.
-    if (entry.get("send_attempt") or {}).get("status") in {"sending", "unconfirmed"}:
-        return "unconfirmed_today"
+OPEN_INTENT_STATUSES = frozenset({"sending", "unconfirmed", "rejected"})
+
+
+def business_today(now: datetime | None = None) -> date:
     current = now if now is not None else business_now()
     if current.tzinfo is None:
         current = current.replace(tzinfo=SEND_TIMEZONE)
-    today = current.astimezone(SEND_TIMEZONE).date()
-    unconfirmed = [entry.get("last_unconfirmed_at")]
-    if entry.get("last_status") == "unconfirmed":
-        # 兼容已有 2.6 的待核对记录，升级前只写过 last_attempt_at。
-        unconfirmed.append(entry.get("last_attempt_at"))
-    if any(timestamp_date(value) == today for value in unconfirmed):
+    return current.astimezone(SEND_TIMEZONE).date()
+
+
+def open_intent(entry: dict) -> tuple[str, date | None] | None:
+    """未结束的发送意图及其业务日期；没有则返回 None。日期读不出时为 None。"""
+    attempt = entry.get("send_attempt") or {}
+    attempt_status = attempt.get("status") if attempt.get("status") in OPEN_INTENT_STATUSES else None
+    legacy_status = entry.get("last_status") if entry.get("last_status") in OPEN_INTENT_STATUSES else None
+    if attempt_status is None and legacy_status is None:
+        return None
+    # 新旧字段任一记为明确拒绝，就按拒绝处理，不能被另一处的“待核对”降级。
+    status = "rejected" if "rejected" in {attempt_status, legacy_status} else (attempt_status or legacy_status)
+    if attempt_status is not None:
+        try:
+            day = date.fromisoformat(str(attempt.get("business_date")))
+        except ValueError:
+            day = timestamp_date(attempt.get("started_at"))
+    else:
+        # 兼容 2.6 及更早记录：只写过 last_unconfirmed_at / last_attempt_at。
+        day = timestamp_date(entry.get("last_unconfirmed_at")) or timestamp_date(entry.get("last_attempt_at"))
+    return status, day
+
+
+def daily_skip_code(entry: dict, *, now: datetime | None = None) -> str | None:
+    """仅判断当日保护原因；干跑与显式 force 由调用方决定是否应用。
+
+    防重复保护只管当天：昨天结果不明不能挡住今天这条，否则火花会断。
+    同一天内的待核对、明确拒绝和已发送仍然阻止自动重发。日期读不出的记录无法证明已过期，
+    保守按当天处理，由用户在界面上点“核对结果”解除。
+    """
+    today = business_today(now)
+    intent = open_intent(entry)
+    if intent is not None and intent[1] in {None, today}:
+        return "rejected_unreviewed" if intent[0] == "rejected" else "unconfirmed_today"
+    if timestamp_date(entry.get("last_unconfirmed_at")) == today:
         return "unconfirmed_today"
     if timestamp_date(entry.get("last_sent_at")) == today:
         return "already_sent_today"

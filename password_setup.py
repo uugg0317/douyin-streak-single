@@ -119,7 +119,7 @@ def initialize_env(
         "HOST": "127.0.0.1", "PORT": "8000", "LOGIN_GATE": "on",
         "PASSWORD_PUBLIC_LOGIN": "on", "ALLOW_PUBLIC_NO_GATE": "off", "WHITELIST_IPS": "",
         "QR_PUBLIC_ORIGIN": "", "COOKIE_EXTRACT_MODE": "local-client", "QR_LOGIN_BROWSER_CHANNEL": "",
-        "QR_LOGIN_NETWORK_MODE": "auto", "SPARKKEEPER_BACKGROUND_TASKS": "0",
+        "QR_LOGIN_NETWORK_MODE": "auto",
         "SESSION_WARN_EMAIL_ENABLED": "off", "TZ": "Asia/Shanghai",
     }
     for key, value in defaults.items():

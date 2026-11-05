@@ -13,6 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import app_common
 from core import automation as A, ledger as L, runtime as R
 from core.send_day import business_now, daily_skip_code
@@ -212,7 +213,8 @@ print(entry['send_attempt']['attempt_id'])
                     self.assertEqual(recovered, 1)
                     self.assertEqual(row["send_attempt"]["status"], "unconfirmed")
                     self.assertEqual(daily_skip_code(row), "unconfirmed_today")
-                    self.assertEqual(daily_skip_code(row, now=business_now() + timedelta(days=1)), "unconfirmed_today")
+                    # 防重复保护只管当天：次日不再阻止新一天的发送。
+                    self.assertIsNone(daily_skip_code(row, now=business_now() + timedelta(days=1)))
                     self.assertEqual(A.compute_pending(cfg={}), [])
                     self.assertEqual(L.recover_interrupted_attempts(), 0)
 

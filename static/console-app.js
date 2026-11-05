@@ -258,10 +258,13 @@ const app = createApp({
       if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== value.business_date) return null;
       if (!['accepted','unconfirmed','pending','selected'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0) || typeof value.includes_historical_unconfirmed !== 'boolean') return null;
       return {business_date:value.business_date, accepted:value.accepted, unconfirmed:value.unconfirmed,
-        pending:value.pending, selected:value.selected, includes_historical_unconfirmed:value.includes_historical_unconfirmed};
+        pending:value.pending, selected:value.selected, includes_historical_unconfirmed:value.includes_historical_unconfirmed,
+        historical_unreviewed:Number.isSafeInteger(value.historical_unreviewed) && value.historical_unreviewed >= 0 ? value.historical_unreviewed : 0};
     };
     const backgroundPauseMessage = computed(() => status.status_connected && status.background_tasks_enabled === false
-      ? '自动任务未启用：本次启动已暂停后台任务，本机默认只手动执行；今日已有结果也不会自动开启后台任务。' : '');
+      ? (config.auto_run_enabled
+        ? '每日自动续火花已打开，但后台任务被启动参数或恢复保护暂停；请到“定时”页查看原因。'
+        : '每日自动续火花未开启：现在只能手动发送。可在“定时”页打开开关。') : '');
     const todayResultMessage = computed(() => {
       const value = status.status_connected && todaySummary.value;
       if (!value) return '尚未获取今日结果，请等待可靠的台账汇总。';
@@ -271,8 +274,8 @@ const app = createApp({
     const todayResultDetail = computed(() => {
       const value = status.status_connected && todaySummary.value;
       if (!value) return '运行记录或模拟演练不能代替发送证据，暂不推断今天是否已经发送。';
-      return (value.includes_historical_unconfirmed ? '待核对人数包含历史未决结果。' : '') +
-        (value.unconfirmed > 0 ? '请在抖音核对待核对对象，勿直接重发。' : '') +
+      return (value.historical_unreviewed > 0 ? `另有 ${value.historical_unreviewed} 人的往日结果未核对，不影响今天发送。` : '') +
+        (value.unconfirmed > 0 ? '今天待核对的好友请在抖音看一眼，再到“好友”页点核对按钮。' : '') +
         '已确认接受不代表对方已读，也不保证火花增长。';
     });
     const baseDocTitle = () => `抖音自动续火花${status.version || appVersion.value ? ' ' + (status.version || appVersion.value) : ''} · Douyin Cloud Streak`;
@@ -353,7 +356,8 @@ const app = createApp({
     const savedSelectionLabel = computed(() => savedSelection.value.map(row => row.display_name || row.nickname).join('、') || (ledgerReady.value ? '暂无已生效好友' : '等待同步已生效名单'));
     const selectionStatusMessage = computed(() => selectionFeedback.value || (selectionDirty.value ? `草稿已变更，当前仍生效 ${savedFriendCount.value} 人。请先保存或放弃未保存变更，再执行。` : ''));
     const streakUsable = row => !['unknown','suspect','reset_pending'].includes(row.streak_status);
-    const streakResetCandidates = computed(() => savedLedgerContacts.value.filter(row=>row.streak_status==='reset_pending'));
+    const streakResetCandidates = computed(() => savedLedgerContacts.value.filter(row=>['reset_pending','correction_pending'].includes(row.streak_status)));
+    const sendReviewCandidates = computed(() => savedLedgerContacts.value.filter(row=>row.send_review_status));
     const identitySendBlocked = row => row.identity_ambiguous || !!row.send_block_reason || row.observation_status === 'not_observed' || row.rename_candidates?.some(pair=>pair.unresolved_send);
     const identityDescription = row => {
       if (row.send_block_reason === 'related_send_unconfirmed' || row.rename_candidates?.some(pair=>pair.unresolved_send)) return '历史发送结果待核对，暂不重复发送。';
@@ -450,7 +454,7 @@ const app = createApp({
       if (status.stopping) return view('正在停止／结果待核对', status.status_connected ? '后台任务尚未结束，勿重复启动；结束后先核对发送结果' : '上次状态为停止中，尚未确认后台任务结束；连接恢复前勿重复启动', 'var(--status-invalid)');
       if (!status.running && status.retry_dispatching) return view('正在启动补发', status.status_connected ? '后台已开始启动补发，请等待任务更新，勿重复启动' : '补发启动结果尚未确认，连接恢复前勿重复启动', status.status_connected ? 'var(--status-valid)' : 'var(--status-pending)');
       if (!status.status_connected) return view('等待状态同步', '连接恢复后会自动更新');
-      if (status.ledger_recovery_required) return view('恢复保护，等待核对', '发送历史可能不完整，已阻止发送；请先核对并恢复台账', 'var(--status-invalid)');
+      if (status.ledger_recovery_required) return view('恢复保护，等待核对', '发送历史可能不完整，今天已暂停发送；核对后可点“我已核对，解除发送保护”，明天也会自动解除', 'var(--status-invalid)');
       if (status.running) {
         const phases = {starting:'正在准备任务', opening_browser:'正在准备自动化浏览器', loading_contacts:'正在读取会话列表', locating:'正在定位目标好友', confirming:'正在等待页面确认发送结果', waiting_gap:'正在等待好友之间的发送间隔', finishing:'正在保存结果并收尾'};
         return view('正在执行', phases[status.task_phase] || '请等待当前任务完成', 'var(--status-valid)');
@@ -618,6 +622,9 @@ const app = createApp({
           last_capture_complete: item.last_capture_complete === true,
           identity_review_pending: item.identity_review_pending === true,
           send_block_reason: item.send_block_reason || null,
+          send_review_status: ['unconfirmed','rejected'].includes(item.send_review_status) ? item.send_review_status : null,
+          send_review_date: typeof item.send_review_date === 'string' ? item.send_review_date : null,
+          send_review_blocks_today: item.send_review_blocks_today === true,
           rename_candidates: Array.isArray(item.rename_candidates) ? item.rename_candidates.map(pair=>({...pair})) : [],
           selected: Boolean(item.selected) && !isAmbiguous(item),
           last_status: item.last_status || (item.last_sent_at ? 'success' : 'pending'),
@@ -1203,7 +1210,7 @@ const app = createApp({
     };
 
     const reviewStreak = async (row, action) => {
-      const current = savedLedgerContacts.value.find(item=>item.entry_id===row.entry_id && item.streak_status==='reset_pending');
+      const current = savedLedgerContacts.value.find(item=>item.entry_id===row.entry_id && ['reset_pending','correction_pending'].includes(item.streak_status));
       if (!current || !identityDecisionAllowed.value || identitySendBlocked(current) || !['accept','keep'].includes(action)) {
         ElementPlus.ElMessage.warning('请先保存或放弃草稿，并等待当前任务结束、核对好友身份。');return false;
       }
@@ -1228,6 +1235,48 @@ const app = createApp({
         if(!managementCurrent(requestEpoch))return false;
         ElementPlus.ElMessage.error(error.response?.data?.detail || error.message || '火花确认未完成，请刷新核对');return false;
       } finally {finishLedgerWrite(owner);}
+    };
+
+    const reviewSend = async (row, action) => {
+      const current = savedLedgerContacts.value.find(item=>item.entry_id===row.entry_id && item.send_review_status);
+      if (!current || !identityDecisionAllowed.value || !['sent','not_sent'].includes(action)) {
+        ElementPlus.ElMessage.warning('请先保存或放弃草稿，并等待当前任务结束后再核对。');return false;
+      }
+      const requestEpoch=managementEpoch;
+      const wording=action==='sent'
+        ? `确认已在抖音里看到发给“${current.display_name}”的这条消息？将记为已发送，当天不再重发。`
+        : `确认发给“${current.display_name}”的消息没有发出？将允许程序重新发送。`;
+      if (!confirm(wording) || !managementCurrent(requestEpoch)) return false;
+      const owner=beginLedgerWrite('核对发送结果');if(!owner)return false;
+      const draft=selectionFingerprint(draftSelection.value);
+      try {
+        const res=await api.post('/api/ledger/send-review',{entry_id:current.entry_id,action,expected_ledger_version:ledgerVersion.value});
+        if(!managementCurrent(requestEpoch))return false;
+        if(res.data?.ok!==true || !Array.isArray(res.data.entries) || typeof res.data.ledger_version!=='string') {
+          ledgerReady.value=false;throw new Error('核对结果尚未确认，请刷新好友台账');
+        }
+        const changed=selectionFingerprint(draftSelection.value)!==draft;
+        const edited=new Map(contacts.value.map(item=>[contactKey(item),item.selected]));
+        applySavedLedger(normalizeLedgerContacts(res.data.entries),res.data.ledger_version,false);
+        if(changed)for(const item of contacts.value)if(edited.has(contactKey(item)))item.selected=edited.get(contactKey(item));
+        selectionFeedback.value=action==='sent'?'已记为已发送。':'已记为未发出，可以重新发送。';
+        ElementPlus.ElMessage.success(selectionFeedback.value);return true;
+      } catch(error) {
+        if(!managementCurrent(requestEpoch))return false;
+        ElementPlus.ElMessage.error(error.response?.data?.detail || error.message || '核对未完成，请刷新后重试');return false;
+      } finally {finishLedgerWrite(owner);}
+    };
+
+    const clearRecovery = async () => {
+      if (!confirm('请先在抖音里核对今天已经发过哪些好友。确认核对完毕，解除今天的发送保护？（明天也会自动解除）')) return false;
+      try {
+        const res=await api.post('/api/ledger/recovery-clear',{confirm:true});
+        ElementPlus.ElMessage.success(res.data?.cleared ? '发送保护已解除。' : '当前没有需要解除的保护。');
+        await loadStatus();
+        return true;
+      } catch(error) {
+        ElementPlus.ElMessage.error(error.response?.data?.detail || error.message || '解除失败，请稍后重试');return false;
+      }
     };
 
     const saveLedgerSelection = async (options = {}) => {
@@ -1661,6 +1710,9 @@ const app = createApp({
       identitySendBlocked,
       streakResetCandidates,
       reviewStreak,
+      sendReviewCandidates,
+      reviewSend,
+      clearRecovery,
       streakDisplay,
       streakDetail,
       streakStale,

@@ -1,5 +1,6 @@
 """Pure exception classification; no application imports or live browser."""
 import unittest
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core.browser_errors import BrowserSessionUnavailable, raise_if_browser_unavailable
 
 

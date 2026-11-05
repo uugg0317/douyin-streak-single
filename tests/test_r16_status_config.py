@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from fastapi import FastAPI
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import config as C, ledger as L, scheduler as S
 from routers import config as config_routes, pages
 
@@ -87,13 +88,14 @@ class StatusConfigTests(unittest.TestCase):
         self.assertEqual((summary["accepted"], summary["unconfirmed"], summary["pending"], summary["selected"]), (1, 1, 1, 3))
         self.assertFalse(summary["includes_historical_unconfirmed"])
 
-    def test_historical_inflight_intents_remain_unknown_after_midnight(self):
+    def test_historical_inflight_intents_do_not_block_today_but_stay_reviewable(self):
         yesterday = (self.now - timedelta(days=1)).isoformat()
         summary = self.summary([self.entry("中断", send_attempt={"status": "sending", "business_date": "2026-10-17", "started_at": yesterday}),
                                 self.entry("历史待核对", last_status="unconfirmed", last_unconfirmed_at=yesterday)])
-        self.assertEqual(summary["unconfirmed"], 2)
-        self.assertEqual(summary["pending"], 0)
-        self.assertTrue(summary["includes_historical_unconfirmed"])
+        # 防重复保护只管当天：往日未决结果不再计入今天的阻塞，仍提示用户核对。
+        self.assertEqual(summary["unconfirmed"], 0)
+        self.assertEqual(summary["pending"], 2)
+        self.assertEqual(summary["historical_unreviewed"], 2)
 
     def test_today_uses_business_timezone_and_counts_deselected_confirmed_evidence(self):
         summary = self.summary([self.entry("今日UTC", selected=False, last_sent_at="2026-10-17T16:01:00Z"),

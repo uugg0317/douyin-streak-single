@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import unittest
 from _browser import managed_chromium, requires_chromium
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core.contact_capture import EXTRACT_JS
 from core.streaks import observe_streak
 

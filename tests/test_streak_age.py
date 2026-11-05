@@ -1,5 +1,6 @@
 from datetime import datetime
 from unittest import TestCase,mock
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import streaks,ledger
 from routers import contacts_ledger as routes
 import test_streak_ledger as fixture
@@ -7,7 +8,7 @@ import test_streak_ledger as fixture
 class ConfirmationAgeTests(TestCase):
     def test_unknown_history_uses_shanghai_business_date_and_stale_threshold(self):
         now=datetime.fromisoformat('2026-10-22T01:00:00+08:00')
-        for status in ('unknown','suspect','reset_pending'):
+        for status in ('unknown','suspect','reset_pending','correction_pending'):
             view=streaks.confirmation_age({'streak_status':status,'streak_confirmed_at':'2026-10-17T17:00:00+00:00'},now)
             self.assertEqual(view['streak_confirmed_date'],'2026-10-18');self.assertEqual(view['streak_unconfirmed_days'],4)
             self.assertTrue(view['streak_may_be_stale'])

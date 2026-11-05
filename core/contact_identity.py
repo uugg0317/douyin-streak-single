@@ -1,7 +1,7 @@
 """Conservative observation/candidate rules. Similarity never authorizes a send."""
 import re
 from urllib.parse import urldefrag, urlsplit
-from .send_day import business_now
+from .send_day import business_now, daily_skip_code
 
 
 def avatar_key(value):
@@ -19,18 +19,27 @@ def avatar_key(value):
     return raw
 
 
+def rejected_send(entry):
+    """当天有明确拒绝且尚未核对；跨天后不再阻止新一天的发送。"""
+    return daily_skip_code(entry) == 'rejected_unreviewed'
+
+
 def unresolved_send(entry):
-    return ((entry.get('send_attempt') or {}).get('status') in {'sending','unconfirmed'}
-            or entry.get('last_status') in {'sending','unconfirmed'})
+    """当天有未结束的发送意图（发送中、待核对或明确拒绝）。"""
+    return daily_skip_code(entry) in {'unconfirmed_today', 'rejected_unreviewed'}
 
 
 def identity_block_reason(entry):
     if entry.get('ledger_recovery_required'):
         return 'ledger_recovery_required'
+    if rejected_send(entry):
+        return 'rejected_unreviewed'
     if entry.get('identity_ambiguous'):
         return 'identity_ambiguous'
     # 旧候选只用于防止重复发送，不再要求用户确认是不是同一个人。
     for candidate in entry.get('rename_candidates') or []:
+        if candidate.get('rejected_send'):
+            return 'related_send_rejected'
         if candidate.get('unresolved_send'):
             return 'related_send_unconfirmed'
         if candidate.get('protected_day') == business_now().date().isoformat():
@@ -75,6 +84,7 @@ def mark_observations(entries, seen, new_ids, capture, now):
             if unresolved:
                 evidence.append('unresolved_send_needs_exclusion')
             candidates[old['entry_id']] = {'old_entry_id':old['entry_id'],'old_name':old['display_name'],
-                'new_name':entry['display_name'],'evidence':evidence,'unresolved_send':unresolved}
+                'new_name':entry['display_name'],'evidence':evidence,'unresolved_send':unresolved,
+                'rejected_send':rejected_send(old)}
         entry['rename_candidates'] = list(candidates.values())
         entry['identity_review_pending'] = bool(candidates)

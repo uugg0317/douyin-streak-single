@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import password_setup
 from auth_config import password_hash_kind
 
@@ -38,7 +39,8 @@ class PasswordSetupTests(unittest.TestCase):
         self.assertEqual(values["PASSWORD_PUBLIC_LOGIN"], "on")
         self.assertEqual(values["HOST"], "127.0.0.1")
         self.assertEqual(values["PORT"], "8000")
-        self.assertEqual(values["SPARKKEEPER_BACKGROUND_TASKS"], "0")
+        # 后台任务跟随网页“每日自动续火花”开关，初始化不再写入强制关闭。
+        self.assertNotIn("SPARKKEEPER_BACKGROUND_TASKS", values)
         self.assertGreaterEqual(len(values["AUTH_TOKEN"]), 48)
         self.assertGreaterEqual(len(values["URL_ACCESS_TOKEN"]), 48)
         self.assertNotEqual(values["AUTH_TOKEN"], values["URL_ACCESS_TOKEN"])

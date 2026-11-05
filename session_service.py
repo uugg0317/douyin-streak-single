@@ -41,6 +41,15 @@ FAILURE_BODY = (
 _failure_warning_lock = threading.Lock()
 _catch_up_notice_lock = threading.Lock()
 
+REVIEW_SUBJECT = "【需要核对】抖音续火花今天有发送结果待确认（{host}）"
+REVIEW_BODY = (
+    "抖音自动续火花今天的发送有需要你确认的结果：\n\n{detail}\n\n"
+    "服务器：{host}\n检查时间：{time}\n\n"
+    "请在抖音里看一眼对应好友的聊天记录，再到控制台“好友”页点“记为已发”或“允许重发”。"
+    "今天未核对的好友不会重复发送；第二天会照常发送，不会因此断火花。\n"
+)
+_review_warning_lock = threading.Lock()
+
 CATCH_UP_SUBJECT = "【补跑已启动】抖音续火花（{host}）"
 CATCH_UP_BODY = (
     "已启动今日补跑（业务日期：{date}，Asia/Shanghai）。\n\n"
@@ -217,6 +226,43 @@ def notify_after_run(result: dict) -> None:
         _send_failure_warning()
     except Exception as e:
         logger.warning("连续失败升级告警发送失败：%s", e)
+    try:
+        _send_review_warning(result)
+    except Exception as e:
+        logger.warning("待核对提醒发送失败：%s", e)
+
+
+_REVIEW_CODES = {"delivery_unconfirmed": "结果未确认", "delivery_rejected": "页面提示发送失败",
+                 "rejected_unreviewed": "页面提示发送失败"}
+
+
+def _send_review_warning(result: dict) -> bool:
+    """当天出现待核对、明确拒绝或恢复保护时提醒一次；没有需要处理的事就不发邮件。"""
+    if not _warn_email_enabled() or result.get("dry_run"):
+        return False
+    rows = {}
+    for field in ("skipped", "failed"):
+        for item in result.get(field) or []:
+            if isinstance(item, dict) and item.get("code") in _REVIEW_CODES and item.get("name"):
+                rows.setdefault(str(item["name"])[:60], _REVIEW_CODES[item["code"]])
+    recovery = bool(result.get("ledger_recovery_required"))
+    if not rows and not recovery:
+        return False
+    with _review_warning_lock:
+        today = business_now().strftime("%Y-%m-%d")
+        if load_runtime().get("review_warning_date") == today:
+            return False
+        lines = [f"- {name}：{reason}" for name, reason in list(rows.items())[:20]]
+        if len(rows) > 20:
+            lines.append(f"- 另有 {len(rows) - 20} 位，请在控制台查看")
+        if recovery:
+            lines.append("- 台账从备份恢复或已损坏，今天已暂停发送；核对后可在控制台点“我已核对，解除发送保护”，明天也会自动解除")
+        values = {"host": socket.gethostname(), "time": business_now().strftime("%Y-%m-%d %H:%M:%S"),
+                  "detail": "\n".join(lines)}
+        _send_email(load_email_config(), _render_template(REVIEW_SUBJECT, values), _render_template(REVIEW_BODY, values))
+        update_runtime(review_warning_date=today)
+        logger.warning("已发送待核对提醒（%s 位好友%s）", len(rows), "，含恢复保护" if recovery else "")
+        return True
 
 
 def _send_failure_warning() -> bool:

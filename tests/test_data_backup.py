@@ -14,6 +14,7 @@ from unittest import mock
 import warnings
 import zipfile
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from tools import data_backup as B
 from core.file_lock import exclusive_lock
 

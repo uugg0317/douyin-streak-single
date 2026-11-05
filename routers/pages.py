@@ -13,7 +13,7 @@ from auth_service import (
     _clean_expired_sessions,
 )
 from core import automation, ledger, scheduler
-from core.send_day import business_now, timestamp_date
+from core.send_day import business_now, daily_skip_code, timestamp_date
 from core.status_view import session_check_view, task_phase_view
 from core.config import get_valid_state_path
 from fastapi import APIRouter
@@ -24,9 +24,9 @@ router = APIRouter()
 
 def _today_summary() -> dict:
     """Count stable ledger identities, never infer delivery from a run record."""
-    today = business_now().date()
-    selected, accepted, unconfirmed, unsafe = set(), set(), set(), set()
-    historical = False
+    now = business_now()
+    today = now.date()
+    selected, accepted, unconfirmed, unsafe, historical = set(), set(), set(), set(), set()
     for entry in ledger.load_ledger():
         key = str(entry.get("entry_id") or "")
         if not key:
@@ -35,21 +35,18 @@ def _today_summary() -> dict:
             selected.add(key)
         if ledger.identity_block_reason(entry) or not entry.get("has_conversation"):
             unsafe.add(key)
-        attempt = entry.get("send_attempt") or {}
-        pending_intent = attempt.get("status") in {"sending", "unconfirmed"}
-        legacy_unknown = (entry.get("last_status") in {"sending", "unconfirmed"}
-                          or timestamp_date(entry.get("last_unconfirmed_at")) == today)
-        if pending_intent or legacy_unknown:
+        # 只有当天的未决结果阻止今天发送；更早的待核对仅提示用户核对，不再计入今天的阻塞。
+        if daily_skip_code(entry, now=now) in {"unconfirmed_today", "rejected_unreviewed"}:
             unconfirmed.add(key)
-            when = (attempt.get("started_at") or attempt.get("business_date")) if pending_intent else (
-                entry.get("last_unconfirmed_at") or entry.get("last_attempt_at"))
-            historical = historical or timestamp_date(when) != today
+        elif ledger.open_intent(entry) is not None:
+            historical.add(key)
         if timestamp_date(entry.get("last_sent_at")) == today:
             accepted.add(key)
     accepted -= unconfirmed
     return {"business_date": today.isoformat(), "accepted": len(accepted),
             "unconfirmed": len(unconfirmed), "pending": len(selected - unsafe - accepted - unconfirmed),
-            "selected": len(selected), "includes_historical_unconfirmed": historical}
+            "selected": len(selected), "includes_historical_unconfirmed": False,
+            "historical_unreviewed": len(historical)}
 
 
 @router.get("/")

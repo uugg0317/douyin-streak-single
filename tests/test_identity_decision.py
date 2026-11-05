@@ -1,6 +1,7 @@
 import threading
 from unittest import TestCase, mock
 from fastapi import FastAPI
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import app_common
 from core import ledger
 from routers import contacts_ledger as routes

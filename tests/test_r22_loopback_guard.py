@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 from fastapi import Request
 from starlette.responses import Response
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import ip_guard as guard
 import middleware as m
 

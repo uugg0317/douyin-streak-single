@@ -32,6 +32,7 @@ ROOT_FILES = frozenset({
     ".env.example", ".gitattributes", ".gitignore", "README.md", "NOTICE.md", "LICENSE", "LICENSE.md",
     "requirements.txt", "requirements.lock", "安装依赖.bat", "启动单账号本机版.bat",
     "启动本地Cookie助手.bat", "使用说明.txt", "deploy.sh", "start.sh", "douyin-streak.service",
+    "设置开机自启.bat", "取消开机自启.bat",
 })
 # Generated files are deliberately omitted from the source manifest (R02).
 GENERATED_FILES = frozenset({"SOURCE_VERSION.json", "source-manifest.json", "test-report.json", "test-report.txt", "test-report-no-browser.json", "evidence/SUMMARY.md", "SHA256SUMS.txt"})
@@ -101,7 +102,8 @@ def _allowed_file(path: PurePosixPath, *, generated: bool = False) -> bool:
     top = path.parts[0]
     suffix = path.suffix.lower()
     if top in {"core", "routers", "tools"}:
-        return suffix == ".py" or path.as_posix() in {"core/sparkflow_login/LICENSE", "core/sparkflow_login/manifest.json"}
+        return suffix == ".py" or path.as_posix() in {"core/sparkflow_login/LICENSE", "core/sparkflow_login/manifest.json",
+                                                       "tools/autostart.ps1"}
     if top == "static":
         return suffix in STATIC_SUFFIXES
     if top == "tests":

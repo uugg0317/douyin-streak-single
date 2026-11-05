@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from fastapi import FastAPI
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import app_common
 from core import config as C, ledger as L, runtime as R, scheduler as S
 from routers import config as config_routes

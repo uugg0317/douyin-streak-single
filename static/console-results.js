@@ -18,6 +18,7 @@
       }
     }
     const checks = {historical_markers_observed:'已观察到历史己方消息标记；本次演练未发送，不能据此确认真实投递',
+      historical_text_observed:'在己方一侧看到了与本次文案相同的历史消息，正式发送时可据此确认；本次演练未发送',
       no_observed_outgoing_markers:'尚未观察到可用的己方消息标记，空会话也可能出现此情况',
       snapshot_unavailable:'当前页面确认依据尚不可读取', snapshot_failed:'页面确认依据读取未完成',
       visible_failure_signal:'观察到历史失败提示，请先查看会话', pending_message_visible:'观察到尚未完成的消息状态',

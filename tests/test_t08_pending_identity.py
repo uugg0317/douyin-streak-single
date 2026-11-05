@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from fastapi import FastAPI
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import automation, ledger
 from routers import contacts_ledger
 from test_r06_selection_snapshot import LocalClient

@@ -2,6 +2,7 @@ from datetime import datetime
 import inspect
 import threading
 from unittest import TestCase,mock
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import streaks,ledger
 from fastapi import FastAPI
 from routers import contacts_ledger as routes
@@ -15,7 +16,7 @@ def observe(entry,value,day,sync,**fields):
     streaks.observe_streak(entry,{'streak':value,'streak_status':'confirmed','streak_source':'class',**fields},now,**options)
 
 def old_entry():
-    return {'streak_days':81,'streak_status':'confirmed','streak_confirmed_at':'2026-10-17T08:00:00+08:00'}
+    return {'streak_days':81,'streak_status':'confirmed','streak_source':'class','streak_confirmed_at':'2026-10-17T08:00:00+08:00'}
 
 class ResetEvidenceTests(TestCase):
     def test_distinct_syncs_across_days_propose_but_never_overwrite(self):
@@ -36,10 +37,12 @@ class ResetEvidenceTests(TestCase):
         observe(entry,None,'2026-10-19','two',streak_status='unknown')
         observe(entry,2,'2026-10-19','three',streak_source='heuristic')
         self.assertEqual(entry['streak_suspect_count'],1);self.assertNotEqual(entry['streak_status'],'reset_pending')
-    def test_upper_jump_never_proposes_a_reset(self):
+    def test_upper_jump_proposes_a_separate_correction_not_a_downward_reset(self):
         entry=old_entry();entry['streak_days']=12
         observe(entry,87,'2026-10-18','one');observe(entry,88,'2026-10-19','two')
-        self.assertEqual(entry['streak_status'],'suspect');self.assertFalse(entry.get('streak_suspect_count'))
+        self.assertEqual(entry['streak_status'],'correction_pending')
+        self.assertEqual(entry['streak_suspect_direction'],'up')
+        self.assertEqual(entry['streak_days'],12)
     def test_optional_null_cooldown_remains_compatible(self):
         entry=old_entry();entry['streak_reset_dismissed_until']=None
         observe(entry,1,'2026-10-18','one')
@@ -49,6 +52,9 @@ class ResetDecisionTests(TestCase):
     setUp=fixture.StreakLedgerTests.setUp
     def prepare(self):
         rows=ledger.load_ledger();entry=rows[0]
+        # This test starts from a positively confirmed synthetic baseline, not a legacy value.
+        entry.update(streak_source='class', streak_status='confirmed')
+        entry.pop('streak_history_unverified', None)
         observe(entry,1,'2026-10-18','one');observe(entry,2,'2026-10-19','two')
         entry['send_attempt']={'attempt_id':'synthetic-keep','status':'unconfirmed'}
         ledger._save(rows)

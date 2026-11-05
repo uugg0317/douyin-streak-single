@@ -4,6 +4,7 @@ import unittest
 import uuid
 from unittest.mock import Mock
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core.qr_login import LoginObservation, QrLoginInvalid, QrLoginBusy
 import test_qr_login_engine as fixtures
 from test_qr_login_engine import FakeBrowser, IMAGE, wait_for

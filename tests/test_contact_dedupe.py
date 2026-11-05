@@ -3,6 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import ledger
 from core.contact_identity import avatar_key
 from core.contact_dedupe import consolidate_duplicates

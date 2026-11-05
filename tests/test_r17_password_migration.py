@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 import app_common
 import auth_config
 import auth_service as auth

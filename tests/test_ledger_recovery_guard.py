@@ -11,6 +11,7 @@ import textwrap
 import unittest
 from unittest import mock
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core import automation as A, ledger as L
 
 ROOT = Path(__file__).resolve().parents[1]

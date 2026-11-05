@@ -196,10 +196,44 @@ def _session_check_job() -> None:
 
 
 def background_tasks_enabled() -> bool:
-    """Restored data stays paused even when an old environment enables jobs."""
+    """后台任务开关：环境变量明确给出 1/0 时以它为准（测试与服务部署用）；
+    未设置时跟随网页里的“每日自动续火花”开关。恢复暂停当天始终关闭。"""
     if restore_paused(DATA_DIR):
         return False
-    return os.environ.get("SPARKKEEPER_BACKGROUND_TASKS", "0").strip().lower() in {"1", "true", "on", "yes"}
+    raw = os.environ.get("SPARKKEEPER_BACKGROUND_TASKS", "").strip().lower()
+    if raw in {"1", "true", "on", "yes"}:
+        return True
+    if raw in {"0", "false", "off", "no"}:
+        return False
+    try:
+        return bool(load_config().get("auto_run_enabled"))
+    except Exception:
+        logger.exception("读取自动运行开关失败，后台任务保持关闭")
+        return False
+
+
+_background_starter: Callable[[], None] | None = None
+_background_started = False
+_background_lock = threading.Lock()
+
+
+def set_background_starter(starter: Callable[[], None]) -> None:
+    """由 app 注册：真正启动调度器、看门狗和补跑检查的函数。每次服务启动重新计数。"""
+    global _background_starter, _background_started
+    with _background_lock:
+        _background_starter = starter
+        _background_started = False
+
+
+def ensure_background_started() -> bool:
+    """开关打开后立即启动后台任务，无需重启服务；已启动或未开启时不做任何事。"""
+    global _background_started
+    with _background_lock:
+        if _background_started or _background_starter is None or not background_tasks_enabled():
+            return _background_started
+        _background_starter()
+        _background_started = True
+        return True
 
 
 def configure(
@@ -406,7 +440,10 @@ def cancel_retry() -> None:
 
 
 def shutdown() -> None:
-    global _scheduler
+    global _scheduler, _background_started, _background_starter
+    with _background_lock:
+        _background_started = False
+        _background_starter = None
     if _scheduler:
         cancel_retry()
         _scheduler.shutdown(wait=False)

@@ -16,6 +16,7 @@ import os
 import random
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,7 +25,7 @@ from pathlib import Path
 from .browser import open_browser, close_browser_resources, _COMMON_ARGS
 from . import ledger
 from playwright.sync_api import sync_playwright
-from .config import DATA_DIR, get_valid_state_path, load_config
+from .config import DATA_DIR, atomic_write_text, get_valid_state_path, load_config
 from .guard import detect_rate_limit
 from .msg_builder import build_message
 from .runtime import load_runtime, update_runtime
@@ -683,6 +684,7 @@ def _search_and_open(page, name: str) -> bool:
     整轮耗时会被直接顶破 1 分钟。现全部改为「轮询到条件满足即返回」，
     最长等待与旧版一致，但正常情况可省下数秒。
     """
+    box = None
     try:
         box = page.get_by_placeholder("搜索", exact=False).first
         if box.count() == 0:
@@ -715,24 +717,28 @@ def _search_and_open(page, name: str) -> bool:
         raise_if_browser_unavailable(e)
         logger.info("搜索打开 %s 失败: %s", name, e)
         return False
+    finally:
+        # 搜索框留着名字会让左侧列表一直停在搜索结果，后面的好友就全都“找不到”。
+        _clear_search(page, box)
 
 
+def _clear_search(page, box) -> None:
+    try:
+        if box is not None and box.count():
+            box.fill("")
+            time.sleep(0.6)  # 等左侧列表从搜索结果恢复
+    except Exception as error:
+        raise_if_browser_unavailable(error)
+        logger.info("清空搜索框失败：%s", type(error).__name__)
+
+
+# 与好友同步（contact_capture）使用同一个滚动容器判据：最近的 overflow 为 auto/scroll 的祖先。
 _JS_SCROLL_TOP = (
-    "() => { const item=document.querySelector('.conversationConversationItemwrapper');"
-    " if(!item) return false; let n=item;"
-    " while(n){ const s=getComputedStyle(n);"
-    " if((s.overflowY==='auto'||s.overflowY==='scroll')&&n.scrollHeight>n.clientHeight+20)"
-    " { n.scrollTop=0; return true; } n=n.parentElement; } return false; }"
+    "() => { let list=document.querySelector('.conversationConversationItemwrapper');"
+    " while(list && !['auto','scroll'].includes(getComputedStyle(list).overflowY)) list=list.parentElement;"
+    " if(!list) return false; list.scrollTop=0; return true; }"
 )
-
-_JS_SCROLL_DOWN = (
-    "() => { const item=document.querySelector('.conversationConversationItemwrapper'); if(!item) return null;"
-    " let n=item; while(n){ const s=getComputedStyle(n);"
-    " if((s.overflowY==='auto'||s.overflowY==='scroll') && n.scrollHeight>n.clientHeight+20) break;"
-    " n=n.parentElement; } if(!n) return null;"
-    " const before=n.scrollTop; n.scrollTop=before + n.clientHeight*0.9;"
-    " return {before, after:n.scrollTop, height:n.scrollHeight, client:n.clientHeight}; }"
-)
+LOCATE_MAX_SCROLLS = 30
 
 
 def _scroll_list_to_top(page) -> None:
@@ -744,13 +750,15 @@ def _scroll_list_to_top(page) -> None:
         pass
 
 
-def _scroll_list_one_page(page):
-    """会话列表向下滚动约一屏，返回滚动位置信息（用于判断是否到底）。"""
+def _title_match_count(page, name: str) -> int:
+    """诊断用：当前已渲染的会话列表里，规范化后与目标完全相同的标题个数。"""
     try:
-        return page.evaluate(_JS_SCROLL_DOWN)
+        target = _norm_text(name)
+        return sum(_norm_text(text) == target for text in
+                   page.locator(".conversationConversationItemtitle").all_text_contents() or [])
     except Exception as error:
         raise_if_browser_unavailable(error)
-        return None
+        return -1
 
 
 def _click_and_verify(page, target, name: str) -> bool:
@@ -759,6 +767,7 @@ def _click_and_verify(page, target, name: str) -> bool:
         target.click(force=True, timeout=10000)
     except Exception as error:
         raise_if_browser_unavailable(error)
+        logger.info("点击会话「%s」失败：%s", name, type(error).__name__)
         return False
     # 轮询间隔 0.3 → 0.15 秒（好友间每人省约 0.15 秒），但**总上限只增不减**：
     # 28 × 0.15 = 4.2 秒，与旧实现 14 × 0.3 = 4.2 秒完全相同。
@@ -766,10 +775,15 @@ def _click_and_verify(page, target, name: str) -> bool:
     # 失败，回退到 _locate_contact 的慢路径（回顶 + 逐屏遍历），反而更慢。
     # 这里保持「先 sleep 再检查」的顺序，等 DOM 稳定一拍再读，
     # 等左侧选中与右侧标题都确认，避免只高亮新会话却仍在旧输入框发送。
+    active = header = False
     for _ in range(28):
         time.sleep(0.15)
-        if _verify_item_active(page, name) and _verify_in_conversation(page, name):
+        active = _verify_item_active(page, name)
+        header = active and _verify_in_conversation(page, name)
+        if header:
             return True
+    logger.info("点击「%s」后未确认切换：左侧选中=%s，右侧标题=%s", name, active,
+                _verify_in_conversation(page, name))
     return False
 
 
@@ -821,31 +835,43 @@ def _locate_contact(page, name: str) -> bool:
         raise_if_browser_unavailable(e)
         logger.info("快路径定位 %s 异常: %s", name, str(e)[:100])
 
-    # 慢路径：回顶后逐屏遍历（好友仅十余人，几屏内必覆盖）
+    # 慢路径：回顶后逐屏遍历。会话列表分批加载，滚到底部后要等下一批加载；
+    # 高度连续两次不再增长才算真正到底（与好友同步使用同一套滚动与到底判据）。
+    from .contact_capture import BOTTOM_SETTLE_MS, SCROLL_NEXT_JS, SCROLL_SETTLE_MS, SCROLL_STATE_JS
     _scroll_list_to_top(page)
-    time.sleep(0.35)
-    for _ in range(12):
+    time.sleep(0.5)
+    previous_height, stable = None, 0
+    for _ in range(LOCATE_MAX_SCROLLS):
         try:
             target = _find_contact(page, name)
             if target is not None and target.count() and _click_and_verify(page, target.first, name):
                 return True
-            info = _scroll_list_one_page(page)
-            time.sleep(0.45)  # 等虚拟列表渲染新的一屏
-            if info and info.get("after", 0) + info.get("client", 0) >= info.get("height", 0) - 5:
-                # 已滚到底，最后在底部再确认一次
-                target = _find_contact(page, name)
-                if target is not None and target.count() and _click_and_verify(page, target.first, name):
-                    return True
+            state = page.evaluate(SCROLL_STATE_JS) or {}
+            if not state.get("known"):
+                logger.info("定位 %s 时未找到会话列表的滚动区域", name)
                 break
+            at_bottom = state.get("bottom") is True and state.get("loading") is False
+            stable = stable + 1 if at_bottom and state.get("height") == previous_height else 0
+            previous_height = state.get("height")
+            if stable >= 2:
+                break
+            page.evaluate(SCROLL_NEXT_JS)
+            time.sleep((BOTTOM_SETTLE_MS if at_bottom else SCROLL_SETTLE_MS) / 1000)
         except Exception as e:
             raise_if_browser_unavailable(e)
             logger.info("遍历定位 %s 异常: %s", name, str(e)[:100])
             time.sleep(0.4)
 
     # 搜索兜底（极少触发）
+    logger.info("列表中未能打开「%s」（当前同名标题 %s 个），改用搜索兜底", name, _title_match_count(page, name))
     if _search_and_open(page, name):
         time.sleep(random.uniform(0.5, 1))
-        return _verify_item_active(page, name) and _verify_in_conversation(page, name)
+        if _verify_item_active(page, name) and _verify_in_conversation(page, name):
+            return True
+        logger.warning("搜索打开「%s」后未确认切换：左侧选中=%s，右侧标题=%s", name,
+                       _verify_item_active(page, name), _verify_in_conversation(page, name))
+        return False
+    logger.warning("未能定位「%s」：列表遍历和搜索兜底都没有找到唯一会话", name)
     return False
 
 
@@ -959,6 +985,12 @@ MESSAGE_PENDING_SELECTOR = ('[data-send-status="pending"], [data-send-status="se
                             '[data-send-status="queued"]')
 SEND_ERROR_SELECTOR = '[role="alert"], [data-send-error]'
 
+# 宽松兜底（默认关闭）：页面既没有消息标记、也看不到消息文字时，按下发送后输入框
+# 已清空且持续若干秒没有任何失败提示，就记为已发出。可能把少数没发出的消息记成成功，
+# 只在模拟演练确认真实页面读不到消息文字后再打开：.env 中 DELIVERY_ACCEPT_INPUT_CLEARED=on。
+DELIVERY_ACCEPT_INPUT_CLEARED = os.environ.get("DELIVERY_ACCEPT_INPUT_CLEARED", "off").strip().lower() in {"1", "on", "true", "yes"}
+INPUT_CLEARED_QUIET_SECONDS = max(1.0, float(os.environ.get("INPUT_CLEARED_QUIET_SECONDS", "3")))
+
 _CHAT_SCOPE_CONTRACT = {
     "scope": CURRENT_CHAT_SCOPE_SELECTOR, "title": CHAT_TITLE_SELECTOR,
     "message_list": CHAT_MESSAGE_LIST_SELECTOR, "input": CHAT_INPUT_SELECTOR,
@@ -1035,6 +1067,24 @@ _STRUCTURAL_SCOPE_CURRENT_JS = r"""(container, {selectors, target, inputBox, tit
   while (ancestor && !ancestor.contains(inputBox)) ancestor = ancestor.parentElement;
   if (ancestor !== container) return false;
   return !focus || document.activeElement === inputBox || inputBox.contains(document.activeElement);
+}"""
+
+
+# 按下发送后抖音会重排左侧会话列表，原来的选中行节点可能被替换。发送后只要求：
+# 会话区、右侧标题、输入框仍是绑定时的同一元素，标题文字不变；左侧当前会话若可见，
+# 文字也必须是目标好友。发送前的严格校验（含左侧节点身份）保持不变。
+_STRUCTURAL_AFTER_SEND_JS = r"""(container, {selectors, target, inputBox, title, strictRow}) => {
+  const visible = el => !!(el && el.isConnected && el.getClientRects().length
+    && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+  const norm = text => (text || '').replace(/\u00a0/g, ' ').trim();
+  if (!visible(container) || /^(BODY|HTML)$/.test(container.tagName)) return false;
+  if (!visible(title) || !container.contains(title) || norm(title.textContent) !== target) return false;
+  const inputs = Array.from(container.querySelectorAll(selectors.input)).filter(visible);
+  if (inputs.length !== 1 || inputs[0] !== inputBox) return false;
+  const rows = Array.from(document.querySelectorAll(selectors.active_row)).filter(visible);
+  // 轮询中允许列表重排时短暂没有选中项；最终确认时必须有且只有目标好友被选中。
+  if (rows.length === 0) return !strictRow;
+  return rows.length === 1 && norm(rows[0].textContent) === target;
 }"""
 
 
@@ -1136,8 +1186,18 @@ def _bind_delivery_scope(page, target_name: str) -> _DeliveryScope | None:
                 logger.debug("释放会话绑定临时引用失败")
 
 
-def _delivery_scope_current(scope: _DeliveryScope, *, require_focus: bool = False) -> bool:
+def _delivery_scope_current(scope: _DeliveryScope, *, require_focus: bool = False,
+                            after_send: bool = False, final: bool = False) -> bool:
     headers = []
+    if after_send and scope.adapter == "structural":
+        try:
+            return scope.container.evaluate(_STRUCTURAL_AFTER_SEND_JS, {
+                "selectors": _CHAT_SCOPE_CONTRACT, "target": scope.target_name,
+                "inputBox": scope.input_box, "title": scope.title, "strictRow": final,
+            }) is True
+        except Exception as error:
+            raise_if_browser_unavailable(error)
+            return False
     try:
         payload = {
             "selectors": _CHAT_SCOPE_CONTRACT, "target": scope.target_name,
@@ -1161,9 +1221,26 @@ def _delivery_scope_current(scope: _DeliveryScope, *, require_focus: bool = Fals
                 logger.debug("释放当前会话标题引用失败")
 
 
-_DELIVERY_SNAPSHOT_JS = r"""(container, {messageList, selectors}) => {
+_DELIVERY_SNAPSHOT_JS = r"""(container, {messageList, selectors, text, inputBox, rowToken, markRows}) => {
   const visible = el => !!(el.isConnected && el.getClientRects().length
     && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+  const norm = value => (value || '').replace(/\u00a0/g, ' ').trim();
+  // 真实网页没有专用标记时的文字证据：只数本会话里、位于己方一侧（右侧）、
+  // 文字与本次消息完全一致的最内层元素。只返回数量，不返回消息文字或编号。
+  let textMatches = 0;
+  if (text) {
+    const box = messageList.getBoundingClientRect();
+    const ownSide = box.left + box.width * 0.6;
+    for (const el of messageList.querySelectorAll('*')) {
+      if (!visible(el) || (inputBox && (el === inputBox || inputBox.contains(el) || el.contains(inputBox)))) continue;
+      if (norm(el.textContent) !== text) continue;
+      if (Array.from(el.children).some(child => norm(child.textContent) === text)) continue;
+      const scope = el.closest(selectors.scope);
+      if (scope && scope !== container) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.left + rect.width / 2 > ownSide) textMatches += 1;
+    }
+  }
   const messages = Array.from(messageList.querySelectorAll(selectors.outgoing))
     .filter(el => visible(el)
       && (!messageList.matches(selectors.message_list) || el.closest(selectors.message_list) === messageList)
@@ -1178,23 +1255,49 @@ _DELIVERY_SNAPSHOT_JS = r"""(container, {messageList, selectors}) => {
   });
   const failures = Array.from(document.querySelectorAll(selectors.errors)).filter(visible)
     .map(el => (el.textContent || '').trim()).filter(t => /发送失败|消息发送失败|操作过于频繁|暂时无法发送|已被禁言/.test(t));
-  return {messages, failures};
+  // 抖音真实页面：消息行带 data-index（虚拟列表序号），自己发的消息带 isFromMe 类名。
+  // 只返回序号和状态，不返回文字。发送失败/发送中按类名关键字保守识别。
+  // 发送前把已有消息行记进 WeakSet（不改页面 DOM）；发送后最底下一行若不在其中，就是新出现的。
+  // 不依赖 data-index 的增减方向：虚拟列表的序号可能倒排。
+  const rowElements = Array.from(messageList.querySelectorAll('[data-index]'))
+    .filter(el => !(inputBox && inputBox.contains(el)) && !el.parentElement.closest('[data-index]'));
+  if (markRows) window.__sparkkeeperRows = {token: rowToken, seen: new WeakSet(rowElements)};
+  const state = window.__sparkkeeperRows;
+  const seen = rowToken && state && state.token === rowToken ? state.seen : null;
+  const rows = [];
+  let last = null, lastBottom = -Infinity;
+  for (const el of rowElements) {
+    if (!visible(el)) continue;
+    const index = Number(el.getAttribute('data-index'));
+    const classes = [el, ...el.querySelectorAll('[class]')].map(node => node.getAttribute('class') || '').join(' ');
+    const row = {index: Number.isFinite(index) ? index : null, own: /isFromMe/.test(classes),
+                 failed: /(fail|Fail|error|Error|resend|Resend)/.test(classes),
+                 pending: /(sending|Sending|loading|Loading|pending|Pending)/.test(classes),
+                 fresh: seen ? !seen.has(el) : false};
+    rows.push(row);
+    const bottom = el.getBoundingClientRect().bottom;
+    if (bottom >= lastBottom) { lastBottom = bottom; last = row; }
+  }
+  return {messages, failures, textMatches, rows, last};
 }"""
 
 
-def _delivery_snapshot(page, msg_text: str, *, scope: _DeliveryScope) -> dict:
+def _delivery_snapshot(page, msg_text: str, *, scope: _DeliveryScope, after_send: bool = False,
+                      row_token: str | None = None, mark_rows: bool = False) -> dict:
     try:
-        if not _delivery_scope_current(scope):
+        if not _delivery_scope_current(scope, after_send=after_send):
             return {"messages": [], "failures": [], "unavailable": True}
         value = scope.container.evaluate(_DELIVERY_SNAPSHOT_JS, {
-            "messageList": scope.message_list, "selectors": {
+            "messageList": scope.message_list, "text": _norm_text(msg_text), "inputBox": scope.input_box,
+            "rowToken": row_token, "markRows": mark_rows,
+            "selectors": {
                 **_CHAT_SCOPE_CONTRACT, "outgoing": OUTGOING_MESSAGE_SELECTOR,
                 "text": MESSAGE_TEXT_SELECTOR, "failed": MESSAGE_FAILED_SELECTOR,
                 "pending": MESSAGE_PENDING_SELECTOR, "errors": SEND_ERROR_SELECTOR,
             },
         })
         # 读取证据期间 DOM 也可能变化；再次确认，不能接受旧会话中的结果。
-        if not _delivery_scope_current(scope):
+        if not _delivery_scope_current(scope, after_send=after_send):
             return {"messages": [], "failures": [], "unavailable": True}
         if isinstance(value, dict) and isinstance(value.get("messages"), list) and isinstance(value.get("failures"), list):
             return value
@@ -1207,14 +1310,23 @@ def _confirm_delivery(page, input_box, msg_text: str, baseline: dict, timeout: f
                       quiet_window: float = 1.2, *, scope: _DeliveryScope) -> tuple[bool, str]:
     old_ids = {m.get("id") for m in baseline.get("messages", []) if isinstance(m, dict)}
     old_failures = list(baseline.get("failures", []))
+    old_text_matches = baseline.get("textMatches")
+    row_token = baseline.get("rowToken")
     deadline = time.monotonic() + timeout
     candidate_id = None
     candidate_seen = None
+    if baseline.get("unavailable"):
+        raise _unconfirmed("baseline_unavailable")
+    last_state = "no_new_message"
+    snapshot = {}
     try:
         while time.monotonic() < deadline:
-            snapshot = _delivery_snapshot(page, msg_text, scope=scope)
-            if snapshot.get("unavailable") or baseline.get("unavailable"):
-                raise MessageDeliveryUnconfirmed()
+            snapshot = _delivery_snapshot(page, msg_text, scope=scope, after_send=True, row_token=row_token)
+            if snapshot.get("unavailable"):
+                # 发送后页面重绘时可能短暂读不到；绝不据此判成功，继续等到时限。
+                last_state, candidate_id, candidate_seen = "scope_changed", None, None
+                time.sleep(0.1)
+                continue
             new_messages = [m for m in snapshot["messages"] if isinstance(m, dict)
                             and m.get("id") and m.get("id") not in old_ids and m.get("text") == msg_text]
             # New failure signals after this Enter block retries even if input cleared.
@@ -1222,51 +1334,152 @@ def _confirm_delivery(page, input_box, msg_text: str, baseline: dict, timeout: f
                 raise MessageDeliveryRejected()
             cleared = msg_text not in (input_box.inner_text() or "")
             confirmed_messages = [m for m in new_messages if not m.get("pending")]
+            # 页面完全没有带标记的消息时，才改用文字证据或可选的输入框兜底；
+            # 有标记的页面仍只认标记，避免不同证据互相掩盖。
+            unmarked = not baseline.get("messages") and not snapshot["messages"]
+            text_matches = snapshot.get("textMatches")
+            last_row = snapshot.get("last") if isinstance(snapshot.get("last"), dict) else {}
+            fresh_own = bool(row_token and last_row.get("own") and last_row.get("fresh"))
+            fresh_own_sent = fresh_own and not last_row.get("failed") and not last_row.get("pending")
+            evidence, window = None, quiet_window
             if confirmed_messages and cleared and not snapshot["failures"]:
-                current_id = confirmed_messages[-1]["id"]
-                if candidate_id != current_id:
-                    candidate_id, candidate_seen = current_id, time.monotonic()
-                elif time.monotonic() - candidate_seen >= quiet_window:
-                    if not _delivery_scope_current(scope):
-                        raise MessageDeliveryUnconfirmed()
+                evidence = ("accepted", confirmed_messages[-1]["id"])
+            elif unmarked and cleared and not snapshot["failures"] and fresh_own_sent:
+                evidence = ("accepted_own_row",)
+            elif (unmarked and cleared and not snapshot["failures"] and type(text_matches) is int
+                  and type(old_text_matches) is int and text_matches > old_text_matches):
+                evidence = ("accepted_text", text_matches)
+            elif unmarked and cleared and not snapshot["failures"] and DELIVERY_ACCEPT_INPUT_CLEARED:
+                evidence, window = ("accepted_input_cleared", None), INPUT_CLEARED_QUIET_SECONDS
+            if evidence is not None:
+                if candidate_id != evidence:
+                    candidate_id, candidate_seen = evidence, time.monotonic()
+                elif time.monotonic() - candidate_seen >= window:
+                    if not _delivery_scope_current(scope, after_send=True, final=True):
+                        raise _unconfirmed("scope_changed")
                     progress()
-                    return True, "accepted"
+                    return True, evidence[0]
             else:
                 candidate_id = candidate_seen = None
+                last_state = ("input_not_cleared" if not cleared else
+                              "new_message_pending_or_failed" if fresh_own else "no_new_message")
             time.sleep(0.1)
-    except (MessageDeliveryRejected, MessageDeliveryUnconfirmed):
+    except MessageDeliveryRejected:
+        raise
+    except MessageDeliveryUnconfirmed as error:
+        _save_after_send_probe(baseline, snapshot, getattr(error, "diagnostic", None) or "unconfirmed")
         raise
     except Exception as error:
-        raise MessageDeliveryUnconfirmed() from error
-    raise MessageDeliveryUnconfirmed()
+        _save_after_send_probe(baseline, snapshot, "read_error")
+        raise _unconfirmed("read_error") from error
+    _save_after_send_probe(baseline, snapshot, last_state)
+    raise _unconfirmed(last_state)
 
 
-def _dry_run_delivery_check(page, *, scope: _DeliveryScope) -> dict:
+AFTER_SEND_PROBE_PATH = DATA_DIR / "delivery-after-send.json"
+
+
+def _row_summary(snapshot: dict) -> list:
+    rows = snapshot.get("rows") if isinstance(snapshot, dict) else None
+    keys = ("index", "own", "fresh", "failed", "pending")
+    return [{key: row.get(key) for key in keys} for row in (rows or [])[-30:] if isinstance(row, dict)]
+
+
+def _save_after_send_probe(baseline: dict, snapshot: dict, reason: str) -> None:
+    """结果待核对时记录发送前后消息行的序号与状态（不含文字、好友名或消息编号）。"""
+    try:
+        last = snapshot.get("last") if isinstance(snapshot, dict) and isinstance(snapshot.get("last"), dict) else None
+        record = {"version": 1, "at": _now(), "reason": reason,
+                  "before": _row_summary(baseline), "after": _row_summary(snapshot),
+                  "after_last": {key: last.get(key) for key in ("index", "own", "fresh", "failed", "pending")} if last else None,
+                  "after_unavailable": bool(isinstance(snapshot, dict) and snapshot.get("unavailable")),
+                  "text_matches": [baseline.get("textMatches"), snapshot.get("textMatches") if isinstance(snapshot, dict) else None]}
+        atomic_write_text(AFTER_SEND_PROBE_PATH, json.dumps(record, ensure_ascii=False, indent=2))
+    except Exception:
+        logger.info("发送后诊断未能保存（不影响结果）")
+
+
+# 会话校验一直正常、只是没看到新消息时，上一位结果待核对不影响下一位：每位好友发送前
+# 都会重新定位并严格核对会话。会话变化、读取异常或页面明确拒绝时仍停下本轮。
+_CONTINUE_AFTER_UNCONFIRMED = frozenset({"no_new_message", "new_message_pending_or_failed", "input_not_cleared"})
+
+
+def _unconfirmed(reason: str) -> MessageDeliveryUnconfirmed:
+    """结果不明时附上诊断原因（只含固定代码，不含页面文字），便于针对性修复。"""
+    error = MessageDeliveryUnconfirmed()
+    error.diagnostic = reason
+    return error
+
+
+_DELIVERY_PROBE_JS = r"""(container, {messageList, inputBox}) => {
+  // 只统计结构：标签、class 名和 data-* 属性名的出现次数，不读取任何文字或属性值。
+  const visible = el => !!(el.isConnected && el.getClientRects().length
+    && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+  const tags = {}, classes = {}, dataNames = {};
+  let total = 0;
+  for (const el of messageList.querySelectorAll('*')) {
+    if (!visible(el) || (inputBox && inputBox.contains(el))) continue;
+    total += 1;
+    tags[el.tagName.toLowerCase()] = (tags[el.tagName.toLowerCase()] || 0) + 1;
+    for (const name of el.classList) if (/^[A-Za-z][\w-]{0,60}$/.test(name)) classes[name] = (classes[name] || 0) + 1;
+    for (const attr of el.getAttributeNames()) if (/^data-[\w-]{1,40}$/.test(attr)) dataNames[attr] = (dataNames[attr] || 0) + 1;
+  }
+  const top = (map, n) => Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, n);
+  return {visible_elements: total, tags: top(tags, 15), classes: top(classes, 40), data_attributes: top(dataNames, 20),
+          input_contenteditable: !!(inputBox && inputBox.isContentEditable)};
+}"""
+
+DELIVERY_PROBE_PATH = DATA_DIR / "delivery-probe.json"
+
+
+def _save_delivery_probe(scope: _DeliveryScope, check: dict) -> None:
+    """模拟演练时把真实页面的结构摘要写入私有数据目录，用于适配发送确认判据。"""
+    try:
+        structure = scope.container.evaluate(_DELIVERY_PROBE_JS, {
+            "messageList": scope.message_list, "inputBox": scope.input_box})
+        if not isinstance(structure, dict):
+            return
+        record = {"version": 1, "at": _now(), "adapter": scope.adapter, "check": {
+            key: check.get(key) for key in ("evidence", "reason", "observed_outgoing_count", "history_text_matches")},
+            "structure": structure}
+        atomic_write_text(DELIVERY_PROBE_PATH, json.dumps(record, ensure_ascii=False, indent=2))
+    except Exception as error:
+        raise_if_browser_unavailable(error)
+        logger.info("页面结构摘要未能保存（不影响演练结果）")
+
+
+def _dry_run_delivery_check(page, *, scope: _DeliveryScope, msg_text: str = "") -> dict:
     """Observe historical DOM markers only; never claim that a message was sent.
 
     An empty/new conversation cannot demonstrate its outgoing-message layout.
     Keep message text, message IDs and raw browser errors out of run results.
+    页面没有消息标记时，再看历史里己方一侧有没有与本次文案完全相同的消息文字（只记数量）。
     """
     check = {"evidence": "unverified", "reason": "snapshot_unavailable",
-             "observed_outgoing_count": 0}
+             "observed_outgoing_count": 0, "history_text_matches": 0}
     try:
-        snapshot = _delivery_snapshot(page, "", scope=scope)
+        snapshot = _delivery_snapshot(page, msg_text, scope=scope)
         if snapshot.get("unavailable"):
             return check
         messages = [message for message in snapshot["messages"]
                     if isinstance(message, dict) and isinstance(message.get("id"), str)
                     and message["id"].strip()]
         check["observed_outgoing_count"] = len(messages)
+        text_matches = snapshot.get("textMatches")
+        check["history_text_matches"] = text_matches if type(text_matches) is int else 0
         if snapshot["failures"] or any(message.get("failed") for message in messages):
             check["reason"] = "visible_failure_signal"
         elif any(message.get("pending") for message in messages):
             check["reason"] = "pending_message_visible"
         elif messages:
             check.update(evidence="observed", reason="historical_markers_observed")
+        elif check["history_text_matches"] > 0:
+            check.update(evidence="observed", reason="historical_text_observed")
         else:
             check["reason"] = "no_observed_outgoing_markers"
     except Exception:
         check["reason"] = "snapshot_failed"
+    _save_delivery_probe(scope, check)
     return check
 
 
@@ -1280,9 +1493,11 @@ def _send_message(page, msg_text: str, dry_run: bool, *, target_name: str = "") 
         if not _delivery_scope_current(scope):
             raise MessageDeliveryUnconfirmed(enter_attempted=False)
         if dry_run:
-            _send_context.delivery_check = _dry_run_delivery_check(page, scope=scope)
+            _send_context.delivery_check = _dry_run_delivery_check(page, scope=scope, msg_text=msg_text)
             return True, "dry-run"
-        baseline = _delivery_snapshot(page, msg_text, scope=scope)
+        row_token = uuid.uuid4().hex
+        baseline = _delivery_snapshot(page, msg_text, scope=scope, row_token=row_token, mark_rows=True)
+        baseline["rowToken"] = row_token
         if baseline.get("unavailable"):
             raise MessageDeliveryUnconfirmed(enter_attempted=False)
 
@@ -1357,6 +1572,33 @@ def fetch_chat_contacts() -> dict:
 
 
 _CONTACT_TITLE_SELECTOR = ".conversationConversationItemtitle"
+
+
+LIST_STABLE_SECONDS = 3.0
+LIST_STABLE_MAX_SECONDS = 20.0
+
+
+def _wait_list_stable(page, *, quiet: float = LIST_STABLE_SECONDS, limit: float = LIST_STABLE_MAX_SECONDS) -> bool:
+    """抖音先渲染一份临时会话列表，几秒内再换成真实列表（实测出现后约 3 秒才稳定）。
+    标题序列连续 quiet 秒不变才开始排序和定位，否则第一位好友必然“找不到”。"""
+    deadline = time.monotonic() + limit
+    previous, since = None, time.monotonic()
+    while time.monotonic() < deadline:
+        try:
+            titles = tuple(_norm_text(text) for text in
+                           page.locator(".conversationConversationItemtitle").all_text_contents())
+        except Exception as error:
+            raise_if_browser_unavailable(error)
+            logger.info("读取会话列表失败（%s），不再等待列表稳定", type(error).__name__)
+            return False
+        now = time.monotonic()
+        if titles != previous:
+            previous, since = titles, now
+        elif titles and now - since >= quiet:
+            return True
+        time.sleep(0.25)
+    logger.info("会话列表在 %.0f 秒内仍在变化，继续执行", limit)
+    return False
 
 
 def _wait_for_contacts(page, timeout_ms: int = 20000) -> bool:
@@ -1443,10 +1685,13 @@ def compute_pending(cfg: dict | None = None, *, dry_run: bool = False, force: bo
     allow_first = bool(cfg.get("allow_first_message"))
     pending: list[dict] = []
     current = business_now()
+    latest = ({row.get("entry_id"): row for row in ledger.load_ledger()}
+              if selected_snapshot is not None and not dry_run else {})
     for e in entries:
-        if ledger.identity_block_reason(e):
+        guarded = latest.get(e.get("entry_id"), e)
+        if ledger.identity_block_reason(guarded):
             continue
-        if not dry_run and not force and daily_skip_code(e, now=current):
+        if not dry_run and daily_skip_code(guarded, now=current) and not force:
             continue
         if e.get("has_conversation"):
             pending.append({**e, "send_channel": "consumer"})
@@ -1460,9 +1705,26 @@ def compute_pending(cfg: dict | None = None, *, dry_run: bool = False, force: bo
 
 def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> None:
     name, key = entry["display_name"], entry.get("entry_id", "")
-    if ledger.identity_block_reason(entry):
-        result["skipped"].append({"entry_id": key, "name": name, "code": ledger.identity_block_reason(entry),
-                                  "retryable": False, "reason": "当前会话重名、本次未观察到或关联历史发送受保护；本轮不自动发送"})
+    guarded = entry
+    if not dry_run and key:
+        try:
+            guarded = ledger.resolve_entry(ledger.load_ledger(), entry_id=key) or entry
+        except ledger.IdentityConflict:
+            raise
+        except Exception:
+            # 发送前复核台账失败（如保护标记写不进磁盘）：不提交消息，留给后续重试。
+            logger.exception("发送前无法复核台账，本轮未提交该好友")
+            result["failed"].append({"entry_id": key, "name": name, "code": "intent_write_failed",
+                                     "retryable": True, "reason": "台账暂时无法读取，本轮未提交消息"})
+            result["intent_write_failed"] = True
+            return
+    block = ledger.identity_block_reason(guarded)
+    if block:
+        result["skipped"].append({"entry_id": key, "name": name, "code": block,
+                                  "retryable": False,
+                                  "reason": ("当前或关联历史发送存在明确拒绝，尚未核对；本轮未提交消息"
+                                             if block in {"rejected_unreviewed", "related_send_rejected"} else
+                                             "当前会话重名、本次未观察到或关联历史发送受保护；本轮不自动发送")})
         return
     previous_intent = getattr(_send_context, "intent", None)
     intent = {"entry_id": key, "display_name":name, "attempt_id": "", "force": getattr(_send_context, "force", False)}
@@ -1482,9 +1744,15 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
             ledger.update_send_result(name, ok, _now(), msg=msg, **options)
 
     def unknown(error, *, attempted=True):
+        diagnostic = getattr(error, "diagnostic", None)
         result["skipped"].append({"entry_id": key, "name": name, "code": "delivery_unconfirmed",
-                                  "retryable": False, "enter_attempted": attempted, "reason": str(error)})
+                                  "retryable": False, "enter_attempted": attempted, "reason": str(error),
+                                  **({"diagnostic": diagnostic} if diagnostic else {})})
         result["delivery_unconfirmed"] = True
+        if diagnostic not in _CONTINUE_AFTER_UNCONFIRMED:
+            # 会话可能已变化或读取异常：停下本轮，避免在不确定的页面状态下继续操作。
+            result["halt_batch"] = True
+        logger.warning("发送给 %s 的结果待核对（诊断：%s）", name, diagnostic or type(error).__name__)
         try:
             persist(False, status="unconfirmed")
         except Exception:
@@ -1497,7 +1765,19 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
         try:
             ok, why = send_to_contact(page, name, msg, dry_run)
         except MessageDeliveryUnconfirmed as error:
-            unknown(error, attempted=error.enter_attempted)
+            if not error.enter_attempted and not intent["attempt_id"]:
+                try:
+                    # The ledger also checks for an older durable intent. A stale
+                    # selection must not downgrade that history to "not attempted".
+                    persist(False, status="not_attempted")
+                except Exception:
+                    unknown(error, attempted=False)
+                else:
+                    result["failed"].append({"entry_id": key, "name": name, "code": "send_not_attempted",
+                                             "retryable": True, "enter_attempted": False,
+                                             "reason": "未提交消息：当前会话或输入区域未能确认，可检查页面后重试"})
+            else:
+                unknown(error, attempted=error.enter_attempted)
             return
         except MessageDeliveryRejected as error:
             try:
@@ -1538,7 +1818,7 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
                     ledger.confirm_join(name, entry_id=key)
                 except Exception:
                     logger.exception("发送结果已保存，但会话关联标记更新失败")
-            logger.info("页面确认发送给 %s：%s", name, "(干跑)" if dry_run else "accepted")
+            logger.info("页面确认发送给 %s：%s", name, "(干跑)" if dry_run else why)
         elif entry.get("channel") == "creator":
             result["skipped"].append({"entry_id": key, "name": name, "retryable": False,
                                       "reason": "consumer 定位失败（该好友为 creator-only），已降级跳过"})
@@ -1562,8 +1842,11 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
 def _protect_unresolved_results(result: dict) -> None:
     """A durable, unfinished submission can never become a retryable deferred row."""
     try:
-        unresolved = {e["entry_id"]: e for e in ledger.load_ledger()
-                      if (e.get("send_attempt") or {}).get("status") in {"sending", "unconfirmed"}}
+        rows = ledger.load_ledger()
+        # 只保护当天的未决意图；昨天的待核对不能挡住今天失败后的正常补发。
+        rejected = {e["entry_id"] for e in rows if daily_skip_code(e) == "rejected_unreviewed"}
+        unresolved = {e["entry_id"]: e for e in rows
+                      if e["entry_id"] not in rejected and daily_skip_code(e) == "unconfirmed_today"}
     except Exception:
         logger.exception("无法复核发送意图，禁止本轮自动补发")
         for field in ("failed", "deferred"):
@@ -1575,7 +1858,14 @@ def _protect_unresolved_results(result: dict) -> None:
     for field in ("failed", "deferred"):
         safe = []
         for item in result.get(field, []):
-            if isinstance(item, dict) and item.get("entry_id") in unresolved:
+            if isinstance(item, dict) and item.get("entry_id") in rejected:
+                if field == "failed":
+                    safe.append({**item, "retryable": False,
+                                 "code": "delivery_rejected" if item.get("code") == "delivery_rejected" else "rejected_unreviewed"})
+                elif not any(isinstance(row, dict) and row.get("entry_id") == item["entry_id"] for row in result["skipped"]):
+                    result["skipped"].append({**item, "code": "rejected_unreviewed", "retryable": False,
+                                              "reason": "存在明确拒绝但尚未核对的发送记录，不会自动重发"})
+            elif isinstance(item, dict) and item.get("entry_id") in unresolved:
                 if not any(isinstance(row, dict) and row.get("entry_id") == item["entry_id"] for row in result["skipped"]):
                     result["skipped"].append({**item, "code": "delivery_unconfirmed", "retryable": False,
                                               "reason": "存在未决发送意图，请人工核对；不会自动重发"})
@@ -1787,16 +2077,20 @@ def _run_send_body(dry_run: bool = False, only_names: list[str] | None = None, o
     elif only_names is not None:
         targets = [t for t in targets if t.get("display_name") in only_names and not t.get("identity_ambiguous")]
     planned_total = len(targets)
-    if not dry_run and not force:
+    if not dry_run:
         current = business_now()
+        latest = ({row.get("entry_id"): row for row in ledger.load_ledger()}
+                  if selected_snapshot is not None else {})
         pending = []
         for target in targets:
-            code = daily_skip_code(target, now=current)
-            if code:
+            code = daily_skip_code(latest.get(target.get("entry_id"), target), now=current)
+            if code and (not force or code == "rejected_unreviewed"):
                 result["skipped"].append({"entry_id": target.get("entry_id", ""),
                                           "name": target.get("display_name", ""), "code": code,
                                           "retryable": False,
-                                          "reason": "今天已发，已自动跳过" if code == "already_sent_today" else "存在发送结果待核对，已自动跳过；请先人工确认"})
+                                          "reason": ("今天已发，已自动跳过" if code == "already_sent_today" else
+                                                     "存在明确拒绝但尚未核对的发送记录，不会自动重发" if code == "rejected_unreviewed" else
+                                                     "存在发送结果待核对，已自动跳过；请先人工确认")})
             else:
                 pending.append(target)
         targets = pending
@@ -1928,6 +2222,7 @@ def _run_send_body(dry_run: bool = False, only_names: list[str] | None = None, o
                 logger.warning("等待联系人列表超时，仍尝试继续发送")
             logger.info("冷启动完成，待发送好友 %s 人，dry_run=%s", len(targets), dry_run)
 
+        _wait_list_stable(page)
         # 按好友在会话列表中的上下位置排序，使定位滚动基本单调向下，
         # 避免在虚拟列表顶部/底部之间来回滚动（底部好友统一留到最后）
         _set_task_phase("loading_contacts")
@@ -1997,7 +2292,7 @@ def _run_send_body(dry_run: bool = False, only_names: list[str] | None = None, o
                 _send_context.force = previous_force
             progress()
 
-            if result.get("delivery_unconfirmed") or result.get("delivery_rejected") or result.get("intent_write_failed"):
+            if result.pop("halt_batch", False) or result.get("delivery_rejected") or result.get("intent_write_failed"):
                 result["deferred"].extend({
                     "entry_id": t.get("entry_id", ""),
                     "retryable": True,

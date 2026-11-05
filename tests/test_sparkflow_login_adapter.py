@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core.sparkflow_login import desktop as vendor
 from core.sparkflow_login import adapter
 

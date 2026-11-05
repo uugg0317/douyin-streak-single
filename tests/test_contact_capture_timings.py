@@ -1,6 +1,7 @@
 """Deterministic scan timing; fake pages never sleep or use account data."""
 import unittest
 
+import _isolation  # noqa: F401  先隔离数据目录，再导入项目模块
 from core.contact_capture import (scan_contacts, EXTRACT_JS, SCROLL_STATE_JS, SCROLL_NEXT_JS,
                                   READ_PAIR_INTERVAL_MS, SCROLL_SETTLE_MS, BOTTOM_SETTLE_MS)
 
