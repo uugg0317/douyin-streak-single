@@ -30,6 +30,7 @@ from routers import (
     credentials as credentials_router,
     email as email_router,
     pages as pages_router,
+    webhook as webhook_router,
     qr_credentials as qr_credentials_router,
     run as run_router,
 )
@@ -121,6 +122,7 @@ app.include_router(auth_router.router)
 app.include_router(contacts_ledger_router.router)
 app.include_router(config_router.router)
 app.include_router(email_router.router)
+app.include_router(webhook_router.router)
 app.include_router(run_router.router)
 app.include_router(credentials_router.router)
 app.include_router(qr_credentials_router.router)

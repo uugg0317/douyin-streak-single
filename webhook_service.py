@@ -3,15 +3,22 @@
 未设置 GROK_BOT_WEBHOOK_URL 时直接返回，不访问网络。
 投递是 best-effort：短超时、失败只记日志，异常不向外抛。
 发送密钥放在请求头 X-Webhook-Key（HTTP 头名大小写不敏感）。
+
+相同事件默认 10 分钟内只实际 POST 一次（GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS）。
+watchdog_stuck 与 test_ping 不受这个间隔限制。
+最近投递只留在本进程内存里，记录里没有地址、密钥或响应正文。
 """
 
 from __future__ import annotations
 
+from collections import deque
 import json
 import logging
 import os
 import re
 import socket
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,7 +29,12 @@ logger = logging.getLogger("douyin-cloud-streak")
 
 WEBHOOK_KEY_HEADER = "X-Webhook-Key"
 WEBHOOK_TIMEOUT_SECONDS = 4
+DEFAULT_DEBOUNCE_SECONDS = 600
 _MAX_DETAILS_BYTES = 8000
+_MAX_DELIVERIES = 20
+_NEVER_DEBOUNCE = frozenset({"watchdog_stuck", "test_ping"})
+_EVENT_NAME = re.compile(r"^[a-z0-9_]{1,40}$")
+_DELIVERY_RESULTS = frozenset({"ok", "fail", "suppressed"})
 
 # 键名里出现这些词就整段丢掉，避免 cookie / token 进入外发 JSON。
 _SENSITIVE_KEY = re.compile(
@@ -44,8 +56,78 @@ class _WebhookRequest(urllib.request.Request):
         self.headers[key] = val
 
 
+_lock = threading.Lock()
+_last_attempt: dict[str, float] = {}
+_deliveries: deque[dict] = deque(maxlen=_MAX_DELIVERIES)
+
+
 def webhook_enabled() -> bool:
     return bool(os.environ.get("GROK_BOT_WEBHOOK_URL", "").strip())
+
+
+def debounce_seconds() -> int:
+    """相同事件的最短发送间隔。0 表示不合并；非法值回落到 10 分钟。"""
+    raw = os.environ.get("GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_DEBOUNCE_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_DEBOUNCE_SECONDS
+    return max(0, min(value, 24 * 60 * 60))
+
+
+def reset_webhook_runtime() -> None:
+    """清空本进程的防抖时钟和投递记录。测试使用，不触碰环境变量。"""
+    with _lock:
+        _last_attempt.clear()
+        _deliveries.clear()
+
+
+def webhook_status() -> dict:
+    """给控制台的只读状态。不含 URL、密钥或错误原文。"""
+    with _lock:
+        deliveries = [dict(item) for item in _deliveries]
+    return {
+        "enabled": webhook_enabled(),
+        "debounce_seconds": debounce_seconds(),
+        "deliveries": deliveries,
+    }
+
+
+def _safe_event(event: str) -> str:
+    cleaned = event.strip().lower()
+    return cleaned if _EVENT_NAME.fullmatch(cleaned) else "unknown"
+
+
+def _remember(event: str, result: str) -> None:
+    _deliveries.appendleft({
+        "time": business_now().isoformat(timespec="seconds"),
+        "event": _safe_event(event),
+        "result": result if result in _DELIVERY_RESULTS else "fail",
+    })
+
+
+def _record(event: str, result: str) -> None:
+    with _lock:
+        _remember(event, result)
+
+
+def _claim_send(event: str) -> bool:
+    """决定这次要不要 POST。被间隔拦住时记一条「已跳过」并返回 False。"""
+    if event in _NEVER_DEBOUNCE:
+        return True
+    window = debounce_seconds()
+    if window <= 0:
+        return True
+    now = time.monotonic()
+    with _lock:
+        last = _last_attempt.get(event)
+        if last is not None and now - last < window:
+            _remember(event, "suppressed")
+            return False
+        _last_attempt[event] = now
+        return True
 
 
 def notify_event(event_type: str, payload: dict | None = None) -> bool:
@@ -67,9 +149,14 @@ def _notify_event(event_type: str, payload: dict | None) -> bool:
         return False
     if not isinstance(event_type, str) or not event_type.strip():
         return False
+    event = event_type.strip()
+    if not _claim_send(event):
+        logger.info("Webhook 已跳过重复事件：%s", _safe_event(event))
+        return False
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        logger.warning("Webhook 地址不是 http(s) URL，已跳过 %s", event_type)
+        logger.warning("Webhook 地址不是 http(s) URL，已跳过 %s", _safe_event(event))
+        _record(event, "fail")
         return False
 
     body_payload = payload if isinstance(payload, dict) else {}
@@ -83,7 +170,7 @@ def _notify_event(event_type: str, payload: dict | None) -> bool:
         details = {"truncated": True, "note": "细节过长已省略"}
 
     body = {
-        "event": event_type.strip(),
+        "event": _safe_event(event),
         "time": business_now().isoformat(timespec="seconds"),
         "host": _hostname(),
         "summary": _redact_text(summary)[:180],
@@ -102,9 +189,11 @@ def _notify_event(event_type: str, payload: dict | None) -> bool:
         with urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:
             response.read(1024)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logger.warning("Webhook 通知失败（%s）：%s", event_type, _public_error(exc))
+        logger.warning("Webhook 通知失败（%s）：%s", _safe_event(event), _public_error(exc))
+        _record(event, "fail")
         return False
-    logger.info("Webhook 已通知：%s", event_type)
+    _record(event, "ok")
+    logger.info("Webhook 已通知：%s", _safe_event(event))
     return True
 
 

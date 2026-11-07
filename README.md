@@ -88,6 +88,10 @@ GROK_BOT_WEBHOOK_KEY=<发送密钥>
 
 3. 重启本机服务。请求体是 JSON，密钥放在请求头 `X-Webhook-Key`。如果例程校验的头名称不同，改 `webhook_service.py` 里的 `WEBHOOK_KEY_HEADER` 后再重启。
 
+控制台「邮箱」页只显示 **已启用** 或 **未配置**，并可以发送一条测试事件。页面上的最近投递只含时间、事件名和成功、失败或已跳过，不显示地址或密钥。记录只留在当前进程内存里，重启后清空。
+
+相同事件默认约 10 分钟只实际发送一次。可选环境变量 `GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS` 修改这个间隔，`0` 表示不合并。任务卡死（`watchdog_stuck`）和控制台测试（`test_ping`）每次都会发送。
+
 未填写 `GROK_BOT_WEBHOOK_URL` 时不会发起请求。Webhook 失败只记日志，发送任务和邮件告警继续按原逻辑执行。字段里可以有好友昵称和计数，不会附带 Cookie 或令牌。
 
 ## 开发与验证

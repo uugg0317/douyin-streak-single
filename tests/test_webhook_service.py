@@ -15,6 +15,9 @@ import urllib.error
 from unittest import mock
 
 import webhook_service
+from fastapi import HTTPException
+
+from routers import webhook as webhook_routes
 from webhook_service import WEBHOOK_KEY_HEADER, WEBHOOK_TIMEOUT_SECONDS, notify_event
 
 
@@ -22,10 +25,16 @@ class WebhookNotifyTests(unittest.TestCase):
     def setUp(self):
         self._saved = {
             name: os.environ.get(name)
-            for name in ("GROK_BOT_WEBHOOK_URL", "GROK_BOT_WEBHOOK_KEY")
+            for name in (
+                "GROK_BOT_WEBHOOK_URL",
+                "GROK_BOT_WEBHOOK_KEY",
+                "GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS",
+            )
         }
         os.environ.pop("GROK_BOT_WEBHOOK_URL", None)
         os.environ.pop("GROK_BOT_WEBHOOK_KEY", None)
+        os.environ["GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS"] = "0"
+        webhook_service.reset_webhook_runtime()
 
     def tearDown(self):
         for name, value in self._saved.items():
@@ -128,6 +137,88 @@ class WebhookNotifyTests(unittest.TestCase):
         self.assertFalse(webhook_service.webhook_enabled())
         os.environ["GROK_BOT_WEBHOOK_URL"] = "https://example.invalid/hook"
         self.assertTrue(webhook_service.webhook_enabled())
+
+    def test_same_event_is_suppressed_until_the_window_passes(self):
+        os.environ["GROK_BOT_WEBHOOK_URL"] = "https://example.invalid/grok-bot/hook"
+        os.environ["GROK_BOT_WEBHOOK_KEY"] = "test-sender-key"
+        os.environ["GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS"] = "600"
+        webhook_service.reset_webhook_runtime()
+        clock = {"now": 1_000.0}
+        response = mock.MagicMock()
+        response.read.return_value = b"ok"
+        with mock.patch("webhook_service.time.monotonic", side_effect=lambda: clock["now"]), \
+             mock.patch("webhook_service.urllib.request.urlopen", return_value=response) as urlopen:
+            self.assertTrue(notify_event("send_complete", {"summary": "第一次", "details": {}}))
+            self.assertFalse(notify_event("send_complete", {"summary": "重复", "details": {}}))
+            clock["now"] += 599
+            self.assertFalse(notify_event("send_complete", {"summary": "仍在间隔内", "details": {}}))
+            self.assertTrue(notify_event("watchdog_stuck", {"summary": "卡死", "details": {}}))
+            self.assertTrue(notify_event("watchdog_stuck", {"summary": "再次卡死", "details": {}}))
+            self.assertTrue(notify_event("test_ping", {"summary": "测试", "details": {}}))
+            self.assertTrue(notify_event("test_ping", {"summary": "再测", "details": {}}))
+            clock["now"] += 2
+            self.assertTrue(notify_event("send_complete", {"summary": "间隔已过", "details": {}}))
+        self.assertEqual(urlopen.call_count, 6)
+        status = webhook_service.webhook_status()
+        encoded = json.dumps(status, ensure_ascii=False)
+        self.assertNotIn("example.invalid", encoded)
+        self.assertNotIn("test-sender-key", encoded)
+        self.assertEqual(
+            [(item["event"], item["result"]) for item in status["deliveries"] if item["event"] == "send_complete"],
+            [("send_complete", "ok"), ("send_complete", "suppressed"), ("send_complete", "suppressed"), ("send_complete", "ok")],
+        )
+        self.assertTrue(all(set(item) == {"time", "event", "result"} for item in status["deliveries"]))
+
+    def test_console_status_and_test_ping_hide_url_and_key(self):
+        secret_url = "https://example.invalid/grok-bot/hook"
+        secret_key = "test-sender-key"
+        os.environ["GROK_BOT_WEBHOOK_URL"] = secret_url
+        os.environ["GROK_BOT_WEBHOOK_KEY"] = secret_key
+        with mock.patch("routers.webhook._check_auth") as check:
+            disabled = webhook_routes.api_webhook_status(token="synthetic-console-token")
+            check.assert_called_once_with("synthetic-console-token")
+        self.assertTrue(disabled["enabled"])
+        self.assertEqual(set(disabled), {"enabled", "debounce_seconds", "deliveries"})
+        response = mock.MagicMock()
+        response.read.return_value = b"ok"
+        with mock.patch("webhook_service.urllib.request.urlopen", return_value=response) as urlopen, \
+             mock.patch("routers.webhook._check_auth") as check:
+            body = webhook_routes.api_webhook_test(token="synthetic-console-token")
+            check.assert_called_once_with("synthetic-console-token")
+        request = urlopen.call_args.args[0]
+        posted = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(posted["event"], "test_ping")
+        self.assertEqual(request.headers.get(WEBHOOK_KEY_HEADER), secret_key)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["deliveries"][0]["event"], "test_ping")
+        self.assertEqual(body["deliveries"][0]["result"], "ok")
+        encoded = json.dumps(body, ensure_ascii=False)
+        self.assertNotIn(secret_url, encoded)
+        self.assertNotIn(secret_key, encoded)
+        self.assertNotIn("url", body)
+        self.assertNotIn("key", body)
+
+    def test_test_ping_without_url_is_rejected_and_does_not_call_http(self):
+        with mock.patch("webhook_service.urllib.request.urlopen") as urlopen:
+            with self.assertRaises(HTTPException) as caught:
+                webhook_routes.api_webhook_test(token="")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(caught.exception.detail, "Webhook 未配置")
+        urlopen.assert_not_called()
+        self.assertEqual(webhook_routes.api_webhook_status(token="")["enabled"], False)
+
+    def test_failed_test_ping_uses_a_fixed_message(self):
+        os.environ["GROK_BOT_WEBHOOK_URL"] = "https://example.invalid/grok-bot/hook"
+        os.environ["GROK_BOT_WEBHOOK_KEY"] = "test-sender-key"
+        with mock.patch("webhook_service.urllib.request.urlopen", side_effect=urllib.error.URLError("down")):
+            with self.assertRaises(HTTPException) as caught:
+                webhook_routes.api_webhook_test(token="")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(caught.exception.detail, "测试 Webhook 未送达")
+        self.assertNotIn("example.invalid", str(caught.exception.detail))
+        status = webhook_service.webhook_status()
+        self.assertEqual(status["deliveries"][0]["result"], "fail")
+        self.assertNotIn("example.invalid", json.dumps(status))
 
 
 class WebhookHookTests(unittest.TestCase):
