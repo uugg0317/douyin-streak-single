@@ -11,6 +11,7 @@ import traceback
 import app_common
 from app_common import logger
 from email_service import _render_template, _send_email, load_email_config
+from webhook_service import notify_event
 
 # 同一次持锁任务连续没有可观察进展达到阈值才判定卡死。
 WATCHDOG_STUCK_SECONDS = max(60, int(os.environ.get("WATCHDOG_STUCK_SECONDS", "900")))
@@ -37,7 +38,7 @@ def _watchdog_capture() -> str:
 
 
 def _watchdog_notify(age: float, stack: str) -> None:
-    """看门狗触发时按页面配置发送告警邮件（best-effort：失败只记日志）。"""
+    """看门狗触发时发送告警邮件，并在同一时刻 best-effort 通知 webhook。"""
     import socket
     from datetime import datetime
 
@@ -62,6 +63,21 @@ def _watchdog_notify(age: float, stack: str) -> None:
         logger.critical("看门狗：告警邮件已发送至 %s", cfg.get("mail_to"))
     except Exception as e:
         logger.warning("看门狗：告警邮件发送失败：%s", e)
+    try:
+        excerpt = (stack or "").strip()
+        if len(excerpt) > 4000:
+            excerpt = excerpt[:4000]
+        notify_event("watchdog_stuck", {
+            "summary": f"任务连续 {age:.0f} 秒没有进展（阈值 {WATCHDOG_STUCK_SECONDS} 秒）",
+            "details": {
+                "age_seconds": round(age),
+                "threshold_seconds": WATCHDOG_STUCK_SECONDS,
+                "stack_captured": bool(stack),
+                "stack_excerpt": excerpt,
+            },
+        })
+    except Exception as e:
+        logger.warning("看门狗：webhook 通知失败：%s", e)
 
 
 def _watchdog_check_once() -> bool:

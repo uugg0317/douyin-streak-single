@@ -2135,6 +2135,28 @@
           <!-- 6. 邮箱告警配置页 -->
           <div v-if="tab === 'email'">
 
+            <div class="card stagger-item no-tilt" style="margin-bottom:16px;">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Grok Bot Webhook</h3>
+                  <p class="card-desc">运行事件可以发给已配置的 Webhook。地址和密钥只写在服务器环境变量里，此页不显示。</p>
+                </div>
+                <el-tag :type="webhook.enabled ? 'success' : 'info'">{{ webhookStatusLabel }}</el-tag>
+              </div>
+              <p class="status-detail" role="status">{{ webhookHint }}</p>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+                <el-button type="primary" :loading="testingWebhook" :disabled="!webhook.enabled" @click="sendTestWebhook">发送测试 Webhook</el-button>
+              </div>
+              <p v-if="webhook.message" class="status-detail" role="status" aria-live="polite">{{ webhook.message }}</p>
+              <p class="status-detail" style="margin-top:12px;">最近投递（仅当前进程）</p>
+              <ul v-if="webhook.deliveries.length" style="margin:6px 0 0; padding-left:18px; line-height:1.7; font-size:13px; color:var(--text-regular);">
+                <li v-for="(item, index) in webhook.deliveries" :key="item.time + '-' + item.event + '-' + index">
+                  {{ item.time }} · {{ item.event }} · {{ webhookResultLabel(item.result) }}
+                </li>
+              </ul>
+              <p v-else class="status-detail">尚无投递记录。</p>
+            </div>
+
             <!-- 顶部两个可点击的小框架（WAAPI 像素手风琴） -->
             <div id="emailBar" :class="{'is-expanded':!!emailSubView}" style="display:flex; width:100%; gap:10px; margin-bottom:16px; max-width:340px;">
               <button type="button" class="card no-tilt email-view-button" :class="{'is-collapsed':emailSubView === 'text'}" aria-label="卡死告警邮箱设置" :aria-expanded="emailSubView === 'smtp'" style="width:min(165px, calc((100% - 10px) / 2)); flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px; cursor:pointer; box-sizing:border-box; overflow:hidden;"
@@ -2924,6 +2946,8 @@
           todaySummary.value = null;
           lockedConfigFields.value = []; configFeedback.value = '';
           savingLedger.value = false; savingConfig.value = false; savingEmail.value = false; testingEmail.value = false;
+          webhook.enabled = false; webhook.debounceSeconds = 600; webhook.deliveries = []; webhook.message = '';
+          testingWebhook.value = false;
           ledgerWriteOwner = null; ledgerWriteBusy.value = false; ledgerWriteLabel.value = '';
           pendingRetryBusy.value = false;
 
@@ -3094,9 +3118,70 @@
           }
         };
 
+        const webhook = reactive({enabled:false, debounceSeconds:600, deliveries:[], message:''});
+        const testingWebhook = ref(false);
+        const webhookStatusLabel = computed(() => webhook.enabled ? '已启用' : '未配置');
+        const webhookHint = computed(() => {
+          if (!webhook.enabled) return '未设置 Webhook 地址时不会外发。在服务器 .env 填写后重启即可启用。此页不显示地址或密钥。';
+          if (webhook.debounceSeconds <= 0) return '已启用。相同事件不会按时间间隔合并。任务卡死和测试发送始终发出。地址和密钥不在此页显示。';
+          const minutes = Math.max(1, Math.round(webhook.debounceSeconds / 60));
+          return '已启用。相同事件约 ' + minutes + ' 分钟内只发送一次。任务卡死和测试发送不受此限制。地址和密钥不在此页显示。';
+        });
+        const webhookResultLabel = result => result === 'ok' ? '成功' : result === 'fail' ? '失败' : result === 'suppressed' ? '已跳过' : '';
+        const acceptWebhookDelivery = item => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+          if (!['ok', 'fail', 'suppressed'].includes(item.result)) return null;
+          if (typeof item.event !== 'string' || !/^[a-z0-9_]{1,40}$/.test(item.event)) return null;
+          if (typeof item.time !== 'string' || item.time.length > 40 || /https?:|webhook|key|token|secret/i.test(item.time)) return null;
+          return {time: item.time, event: item.event, result: item.result};
+        };
+        const applyWebhookStatus = data => {
+          const source = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+          webhook.enabled = source.enabled === true;
+          const seconds = Number(source.debounce_seconds);
+          webhook.debounceSeconds = Number.isFinite(seconds) && seconds >= 0 && seconds <= 86400 ? Math.floor(seconds) : 600;
+          const rows = Array.isArray(source.deliveries) ? source.deliveries : [];
+          webhook.deliveries = rows.map(acceptWebhookDelivery).filter(Boolean).slice(0, 20);
+        };
+        const loadWebhookStatus = async () => {
+          const ticket = beginManagedRead('webhook');
+          try {
+            const res = await api.get('/api/webhook', ticket.options);
+            if (!ticket.current()) return false;
+            applyWebhookStatus(res.data);
+            return true;
+          } catch (e) {
+            if (!ticket.current()) return false;
+            console.error('Failed to load webhook status', e);
+            return false;
+          } finally { finishManagedRead(ticket); }
+        };
+        const sendTestWebhook = async () => {
+          if (!webhook.enabled || testingWebhook.value) return false;
+          const requestEpoch = managementEpoch;
+          testingWebhook.value = true;
+          try {
+            const res = await api.post('/api/webhook/test');
+            if (!managementCurrent(requestEpoch)) return false;
+            applyWebhookStatus(res.data);
+            webhook.message = res.data?.ok === true ? '测试 Webhook 已发送。' : '测试 Webhook 未送达。';
+            if (res.data?.ok === true) ElementPlus.ElMessage.success(webhook.message);
+            else ElementPlus.ElMessage.warning(webhook.message);
+            return res.data?.ok === true;
+          } catch (e) {
+            if (!managementCurrent(requestEpoch)) return false;
+            webhook.message = '测试 Webhook 未送达。';
+            ElementPlus.ElMessage.error(webhook.message);
+            await loadWebhookStatus();
+            return false;
+          } finally {
+            if (managementCurrent(requestEpoch)) testingWebhook.value = false;
+          }
+        };
+
         const loadAll = async () => {
           if (managementDisposed) return false;
-          await Promise.all([loadStatus({reuse:true}), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig()]);
+          await Promise.all([loadStatus({reuse:true}), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig(), loadWebhookStatus()]);
         };
 
         const pendingRetryBusy = ref(false);
@@ -3755,6 +3840,14 @@
           loadEmailConfig,
           saveEmailForm,
           sendTestEmail,
+          webhook,
+          webhookStatusLabel,
+          webhookHint,
+          webhookResultLabel,
+          testingWebhook,
+          applyWebhookStatus,
+          loadWebhookStatus,
+          sendTestWebhook,
           emailSubView,
           openTab,
           selectEmail,
