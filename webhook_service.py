@@ -2,7 +2,7 @@
 
 未设置 GROK_BOT_WEBHOOK_URL 时直接返回，不访问网络。
 投递是 best-effort：短超时、失败只记日志，异常不向外抛。
-发送密钥放在请求头 X-Webhook-Key（HTTP 头名大小写不敏感）。
+发送密钥同时放在 Authorization: Bearer 与 X-Webhook-Key。例程按 Bearer 校验。
 
 相同事件默认 10 分钟内只实际 POST 一次（GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS）。
 watchdog_stuck 与 test_ping 不受这个间隔限制。
@@ -184,6 +184,7 @@ def _notify_event(event_type: str, payload: dict | None) -> bool:
     key = os.environ.get("GROK_BOT_WEBHOOK_KEY", "").strip()
     if key:
         headers[WEBHOOK_KEY_HEADER] = key
+        headers["Authorization"] = f"Bearer {key}"
     request = _WebhookRequest(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:
@@ -205,7 +206,7 @@ def _hostname() -> str:
 
 
 def _public_error(exc: BaseException) -> str:
-    text = str(exc)
+    text = _redact_text(str(exc))
     for env_name in ("GROK_BOT_WEBHOOK_URL", "GROK_BOT_WEBHOOK_KEY"):
         secret = os.environ.get(env_name, "").strip()
         if secret:

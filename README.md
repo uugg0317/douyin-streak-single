@@ -86,7 +86,7 @@ GROK_BOT_WEBHOOK_URL=<例程面板中的完整 POST 地址>
 GROK_BOT_WEBHOOK_KEY=<发送密钥>
 ```
 
-3. 重启本机服务。请求体是 JSON，密钥放在请求头 `X-Webhook-Key`。如果例程校验的头名称不同，改 `webhook_service.py` 里的 `WEBHOOK_KEY_HEADER` 后再重启。
+3. 重启本机服务。请求体是 JSON。密钥放在 `Authorization: Bearer <key>`，同时仍带 `X-Webhook-Key`。Grok Bot 例程按 Bearer 校验。
 
 控制台「邮箱」页只显示 **已启用** 或 **未配置**，并可以发送一条测试事件。页面上的最近投递只含时间、事件名和成功、失败或已跳过，不显示地址或密钥。记录只留在当前进程内存里，重启后清空。
 

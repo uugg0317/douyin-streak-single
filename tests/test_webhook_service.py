@@ -84,6 +84,7 @@ class WebhookNotifyTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.headers.get(WEBHOOK_KEY_HEADER), "test-sender-key")
+        self.assertEqual(request.headers.get("Authorization"), "Bearer test-sender-key")
         self.assertIn("application/json", request.headers.get("Content-Type", ""))
         body = json.loads(request.data.decode("utf-8"))
         self.assertEqual(body["event"], "send_complete")
@@ -112,6 +113,7 @@ class WebhookNotifyTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertNotIn(WEBHOOK_KEY_HEADER, request.headers)
         self.assertNotIn("X-webhook-key", request.headers)
+        self.assertNotIn("Authorization", request.headers)
 
     def test_http_and_network_failures_are_swallowed(self):
         os.environ["GROK_BOT_WEBHOOK_URL"] = "https://example.invalid/grok-bot/hook"
@@ -189,6 +191,7 @@ class WebhookNotifyTests(unittest.TestCase):
         posted = json.loads(request.data.decode("utf-8"))
         self.assertEqual(posted["event"], "test_ping")
         self.assertEqual(request.headers.get(WEBHOOK_KEY_HEADER), secret_key)
+        self.assertEqual(request.headers.get("Authorization"), f"Bearer {secret_key}")
         self.assertTrue(body["ok"])
         self.assertEqual(body["deliveries"][0]["event"], "test_ping")
         self.assertEqual(body["deliveries"][0]["result"], "ok")
@@ -216,9 +219,36 @@ class WebhookNotifyTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(caught.exception.detail, "测试 Webhook 未送达")
         self.assertNotIn("example.invalid", str(caught.exception.detail))
+        self.assertNotIn("test-sender-key", str(caught.exception.detail))
         status = webhook_service.webhook_status()
         self.assertEqual(status["deliveries"][0]["result"], "fail")
         self.assertNotIn("example.invalid", json.dumps(status))
+        self.assertNotIn("test-sender-key", json.dumps(status))
+        self.assertNotIn("Bearer", json.dumps(status))
+
+    def test_failure_log_redacts_bearer_token_and_delivery_record(self):
+        os.environ["GROK_BOT_WEBHOOK_URL"] = "https://example.invalid/grok-bot/hook"
+        os.environ["GROK_BOT_WEBHOOK_KEY"] = "test-sender-key"
+        error = urllib.error.HTTPError(
+            "https://example.invalid/grok-bot/hook",
+            401,
+            "Missing Authorization header. Use Authorization: Bearer test-sender-key.",
+            hdrs=None,
+            fp=None,
+        )
+        with self.assertLogs("douyin-cloud-streak", level="WARNING") as logs:
+            with mock.patch("webhook_service.urllib.request.urlopen", side_effect=error):
+                self.assertFalse(notify_event("run_failed", {"summary": "Bearer test-sender-key", "details": {
+                    "authorization": "Bearer test-sender-key",
+                    "note": "Authorization: Bearer test-sender-key",
+                }}))
+        text = "\n".join(logs.output)
+        self.assertNotIn("test-sender-key", text)
+        self.assertNotIn("Bearer test-sender-key", text)
+        recorded = json.dumps(webhook_service.webhook_status(), ensure_ascii=False)
+        self.assertNotIn("test-sender-key", recorded)
+        self.assertNotIn("Bearer", recorded)
+        self.assertEqual(webhook_service.webhook_status()["deliveries"][0]["result"], "fail")
 
 
 class WebhookHookTests(unittest.TestCase):
