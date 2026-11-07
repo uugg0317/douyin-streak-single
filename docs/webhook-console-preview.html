@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>续火花 · Webhook 控制台预览</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.12);
+      --text: #e8ecf5;
+      --muted: #9aa3b8;
+      --accent: #6ea8fe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1a2a55 0%, transparent 55%),
+        radial-gradient(900px 500px at 90% 0%, #3a1d4d 0%, transparent 50%),
+        var(--bg);
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 48px; }
+    .banner {
+      border: 1px solid var(--border);
+      background: rgba(110,168,254,0.12);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      color: #cfe0ff;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px 18px 16px;
+      backdrop-filter: blur(10px);
+    }
+    .card-header { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .card-title { margin:0; font-size:16px; font-weight:600; }
+    .card-desc { margin:6px 0 0; color: var(--muted); font-size:13px; line-height:1.55; }
+    .status-detail { margin:10px 0 0; color: var(--muted); font-size:13px; line-height:1.55; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+    ul.deliveries { margin:6px 0 0; padding-left:18px; line-height:1.7; font-size:13px; color:#c9d2e6; }
+    .email-bar { display:flex; gap:10px; margin-top:16px; max-width:340px; }
+    .email-pill {
+      flex: 0 0 auto;
+      width: min(165px, calc((100% - 10px) / 2));
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      border-radius: 14px;
+      padding: 12px 8px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <div id="app" class="wrap">
+    <h1>抖音自动续火花 · 邮箱页 Webhook 区块</h1>
+    <p class="sub">静态预览（无后端）。开关可模拟已配置 / 未配置；点测试会写入本地假记录，不会真发 Webhook。</p>
+    <div class="banner">
+      正式版合入后，此区块会出现在控制台「邮箱」页顶部；地址与 Key 只存在服务器 <code>.env</code>，页面永不展示。
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h3 class="card-title">Grok Bot Webhook</h3>
+          <p class="card-desc">运行事件可以发给已配置的 Webhook。地址和密钥只写在服务器环境变量里，此页不显示。</p>
+        </div>
+        <el-tag :type="webhook.enabled ? 'success' : 'info'">{{ webhook.enabled ? '已启用' : '未配置' }}</el-tag>
+      </div>
+      <p class="status-detail" role="status">{{ hint }}</p>
+      <div class="row">
+        <el-switch v-model="webhook.enabled" active-text="模拟已配置" inactive-text="未配置" />
+        <el-button type="primary" :loading="testing" :disabled="!webhook.enabled" @click="sendTest">发送测试 Webhook</el-button>
+      </div>
+      <p v-if="message" class="status-detail" role="status">{{ message }}</p>
+      <p class="status-detail" style="margin-top:12px;">最近投递（仅当前进程）</p>
+      <ul v-if="webhook.deliveries.length" class="deliveries">
+        <li v-for="(item, index) in webhook.deliveries" :key="item.time + '-' + item.event + '-' + index">
+          {{ item.time }} · {{ item.event }} · {{ label(item.result) }}
+        </li>
+      </ul>
+      <p v-else class="status-detail">尚无投递记录。</p>
+    </div>
+
+    <div class="email-bar">
+      <div class="email-pill">卡死告警邮箱</div>
+      <div class="email-pill">告警文本</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script>
+    const { createApp, reactive, ref, computed } = Vue;
+    createApp({
+      setup() {
+        const webhook = reactive({
+          enabled: true,
+          debounceSeconds: 600,
+          deliveries: [
+            { time: '今天 01:12', event: 'test_ping', result: 'fail' },
+            { time: '昨天 11:22', event: 'send_complete', result: 'ok' },
+            { time: '昨天 11:22', event: 'pending_review', result: 'suppressed' },
+          ],
+        });
+        const testing = ref(false);
+        const message = ref('');
+        const hint = computed(() => {
+          if (!webhook.enabled) return '未设置 Webhook 地址时不会外发。在服务器 .env 填写后重启即可启用。此页不显示地址或密钥。';
+          const minutes = Math.max(1, Math.round(webhook.debounceSeconds / 60));
+          return '已启用。相同事件约 ' + minutes + ' 分钟内只发送一次。任务卡死和测试发送不受此限制。地址和密钥不在此页显示。';
+        });
+        const label = (r) => r === 'ok' ? '成功' : r === 'fail' ? '失败' : r === 'suppressed' ? '已跳过' : '';
+        const sendTest = async () => {
+          if (!webhook.enabled || testing.value) return;
+          testing.value = true;
+          message.value = '';
+          await new Promise((r) => setTimeout(r, 600));
+          const now = new Date();
+          const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          webhook.deliveries.unshift({ time: '刚刚 ' + time, event: 'test_ping', result: 'ok' });
+          webhook.deliveries = webhook.deliveries.slice(0, 20);
+          message.value = '测试 Webhook 已发送。（预览页为本地模拟）';
+          ElementPlus.ElMessage.success(message.value);
+          testing.value = false;
+        };
+        return { webhook, testing, message, hint, label, sendTest };
+      },
+    }).use(ElementPlus).mount('#app');
+  </script>
+</body>
+</html>
