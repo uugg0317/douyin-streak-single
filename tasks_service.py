@@ -23,6 +23,7 @@ from core.runtime import (
 )
 from fastapi import HTTPException
 from session_service import notify_after_run, notify_catch_up_started
+from webhook_service import notify_event
 
 
 _catch_up_lock = threading.Lock()
@@ -185,6 +186,121 @@ def _start_run_locked(dry: bool, only_names: list[str] | None = None,
         _begin_run_locked(dry, only_names=only_names, only_ids=only_ids, force=force)
 
 
+def _webhook_names(items: object, limit: int = 30) -> list[str]:
+    return sorted(contact_names(items))[:limit]
+
+
+def _notify_run_webhooks(result: dict, *, dry: bool, unconfirmed: list,
+                         consecutive_failures: int, failure_increased: bool) -> None:
+    """发送结束时的 webhook。邮件告警仍走 session_service，这里只追加通知。"""
+    try:
+        is_dry = bool(dry or result.get("dry_run"))
+        ok_names = _webhook_names(result.get("ok", []))
+        failed_names = _webhook_names(result.get("failed", []))
+        pending_names = _webhook_names(result.get("deferred", []))
+        review_names = _webhook_names(unconfirmed)
+        ok_count = len(contact_names(result.get("ok", [])))
+        failed_count = len(contact_names(result.get("failed", [])))
+        pending_count = len(contact_names(result.get("deferred", [])))
+        review_count = len(contact_names(unconfirmed))
+        system_items = [
+            item for item in result.get("failed", [])
+            if isinstance(item, dict) and item.get("name") == "_system"
+        ]
+        system_count = len(system_items)
+        system_codes = [str(item.get("code")) for item in system_items if item.get("code")]
+        counts = {
+            "dry_run": is_dry,
+            "ok_count": ok_count,
+            "failed_count": failed_count,
+            "pending_count": pending_count,
+            "unconfirmed_count": review_count,
+            "skipped_count": len(contact_names(result.get("skipped", []))),
+            "logged_out": bool(result.get("logged_out")),
+            "credentials_missing": bool(result.get("credentials_missing")),
+            "rate_limited": bool(result.get("rate_limited")),
+            "stopped": bool(result.get("stopped")),
+            "retry_status": result.get("retry_status"),
+            "pending_retry_count": int(result.get("pending_retry_count") or 0),
+            "system_count": system_count,
+            "system_codes": system_codes[:10],
+        }
+        kind = "模拟演练" if is_dry else "本次发送"
+        notify_event("send_complete", {
+            "summary": (
+                f"{kind}完成：通过 {ok_count}，失败 {failed_count}，"
+                f"待处理 {pending_count}，待核对 {review_count}，系统异常 {system_count}"
+            ),
+            "details": {
+                **counts,
+                "ok_names": ok_names,
+                "failed_names": failed_names,
+                "pending_names": pending_names,
+            },
+        })
+        if is_dry:
+            return
+        manual_count = counts["pending_retry_count"] if counts["retry_status"] == "manual" else 0
+        if review_count or manual_count:
+            notify_event("pending_review", {
+                "summary": f"有 {review_count} 人待核对，{manual_count} 人待手动处理",
+                "details": {
+                    "unconfirmed_count": review_count,
+                    "unconfirmed_names": review_names,
+                    "manual_pending_count": manual_count,
+                    "pending_names": pending_names,
+                    "retry_status": counts["retry_status"],
+                },
+            })
+        if counts["logged_out"] or counts["credentials_missing"]:
+            reason = "发送时发现登录态已失效" if counts["logged_out"] else "缺少可用登录凭证"
+            notify_event("credential_invalid", {
+                "summary": reason,
+                "details": {
+                    "reason": reason,
+                    "logged_out": counts["logged_out"],
+                    "credentials_missing": counts["credentials_missing"],
+                },
+            })
+        elif result.get("failed") and not result.get("ok") and system_codes != ["no_selected_contacts"]:
+            notify_event("session_warn", {
+                "summary": "本轮 0 成功，可能登录态失效或页面结构变化",
+                "details": {
+                    "ok_count": ok_count,
+                    "failed_count": failed_count,
+                    "failed_names": failed_names,
+                    "system_codes": system_codes[:10],
+                    "rate_limited": counts["rate_limited"],
+                },
+            })
+        if not ok_count and (
+            counts["logged_out"] or counts["credentials_missing"] or counts["rate_limited"]
+            or counts["stopped"] or result.get("failed")
+        ):
+            notify_event("run_failed", {
+                "summary": f"本轮未成功：通过 {ok_count}，失败 {failed_count}，系统异常 {system_count}",
+                "details": {**counts, "failed_names": failed_names},
+            })
+        threshold = int(scheduler.FAILURE_BREAKER_THRESHOLD)
+        if failure_increased and consecutive_failures >= threshold:
+            notify_event("consecutive_failure", {
+                "summary": f"已连续 {consecutive_failures} 轮未成功（阈值 {threshold}）",
+                "details": {
+                    "consecutive_failures": consecutive_failures,
+                    "threshold": threshold,
+                },
+            })
+    except Exception:
+        logger.warning("运行结果 webhook 组装失败", exc_info=True)
+
+
+def _consecutive_failure_count() -> int:
+    try:
+        return int((load_runtime() or {}).get("consecutive_failures") or 0)
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
 def _begin_run_locked(dry: bool, only_names: list[str] | None = None,
                       only_ids: list[str] | None = None, force: bool = False, *,
                       selected_snapshot: list[dict] | None = None) -> None:
@@ -230,11 +346,24 @@ def _begin_run_locked(dry: bool, only_names: list[str] | None = None,
                             len(contact_names(result.get("failed", []))),
                             len(contact_names(result.get("deferred", []))),
                             len(contact_names(unconfirmed)), system_failures)
+                before_failures = _consecutive_failure_count()
                 if not dry:
                     _schedule_retry(result)
                 record_run(result)
+                after_failures = _consecutive_failure_count()
                 if not dry:
                     notify_after_run(result)
+                _notify_run_webhooks(
+                    result, dry=dry, unconfirmed=unconfirmed,
+                    consecutive_failures=after_failures,
+                    failure_increased=after_failures > before_failures,
+                )
+            except Exception as exc:
+                logger.exception("发送任务异常结束")
+                notify_event("run_failed", {
+                    "summary": "发送任务异常结束，未得到正常结果",
+                    "details": {"dry_run": bool(dry), "error_type": type(exc).__name__},
+                })
             finally:
                 set_running(False)
         finally:

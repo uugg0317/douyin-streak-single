@@ -74,6 +74,22 @@ python tools/consolidate_contacts.py --data-dir data
 
 确认预览后才使用 `--apply`。工具会检查运行占用并先备份原台账，保留可恢复的合并报告；有运行任务或待派发队列时会拒绝写入。
 
+## Grok Bot Webhook
+
+可选。服务可以把发送完成、待核对、连续失败、登录态异常和任务卡死 POST 到已经部署的 Grok Bot Webhook 例程。
+
+1. 在例程面板复制完整 POST 地址和发送密钥。
+2. 写入项目根目录 `.env`（该文件不要提交）：
+
+```
+GROK_BOT_WEBHOOK_URL=<例程面板中的完整 POST 地址>
+GROK_BOT_WEBHOOK_KEY=<发送密钥>
+```
+
+3. 重启本机服务。请求体是 JSON，密钥放在请求头 `X-Webhook-Key`。如果例程校验的头名称不同，改 `webhook_service.py` 里的 `WEBHOOK_KEY_HEADER` 后再重启。
+
+未填写 `GROK_BOT_WEBHOOK_URL` 时不会发起请求。Webhook 失败只记日志，发送任务和邮件告警继续按原逻辑执行。字段里可以有好友昵称和计数，不会附带 Cookie 或令牌。
+
 ## 开发与验证
 
 使用锁定依赖，避免用本机账号验证自动发送修改。测试应使用临时数据目录、本地模拟页面和虚构凭据。
