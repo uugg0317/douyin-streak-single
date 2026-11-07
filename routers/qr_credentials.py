@@ -139,6 +139,9 @@ def start_qr(request: Request, response: Response, body: dict = Body(...),
     except (ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=400, detail="扫码请求编号无效") from None
     scoped = hashlib.sha256((token + "\0" + request_id).encode()).hexdigest()
+    from assistant_login import assistant_qr_active
+    if assistant_qr_active():
+        raise HTTPException(status_code=409, detail="小号扫码进行中，请结束后再扫码登录主账号")
     if not app_common.run_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="后台任务正在运行，请结束后再开始扫码")
     try:

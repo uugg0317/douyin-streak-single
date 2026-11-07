@@ -2157,6 +2157,53 @@
               <p v-else class="status-detail">尚无投递记录。</p>
             </div>
 
+            <div class="card stagger-item no-tilt" style="margin-bottom:16px;">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">小号聊天助手</h3>
+                  <p class="card-desc">用另一个抖音号接收主号私信，转发到 Webhook，再从小号回复。主号火花会话不会被用来发送这些回复。</p>
+                </div>
+                <el-tag :type="assistant.enabled ? (assistant.session_ok === true ? 'success' : assistant.session_ok === false ? 'danger' : 'warning') : 'info'">{{ assistantStatusLabel }}</el-tag>
+              </div>
+              <p class="status-detail" role="status">{{ assistantHint }}</p>
+              <p class="status-detail">白名单：{{ assistant.allowlist.length ? assistant.allowlist.join('、') : '未设置（不会转发，也不会回复任何人）' }}</p>
+              <p class="status-detail">上次轮询：{{ assistant.last_poll || '尚未轮询' }} · 间隔 {{ assistant.poll_seconds }} 秒 · 待发回复 {{ assistant.pending_replies }}</p>
+              <p v-if="assistant.last_error" class="status-detail" role="alert">{{ assistant.last_error }}</p>
+              <p class="status-detail" style="margin-top:12px;">最近消息（只显示摘要）</p>
+              <ul v-if="assistant.recent.length" style="margin:6px 0 0; padding-left:18px; line-height:1.7; font-size:13px; color:var(--text-regular);">
+                <li v-for="item in assistant.recent" :key="item.message_id">
+                  {{ item.message_time || '时间未知' }} · {{ item.conversation_name || '未知会话' }} · {{ item.kind === 'share' ? '分享' : '文字' }} · {{ item.preview || '（无文字）' }}
+                </li>
+              </ul>
+              <p v-else class="status-detail">尚无已转发的消息。</p>
+              <div style="display:grid; grid-template-columns:minmax(140px, 220px) 1fr; gap:12px; margin-top:16px; max-width:720px;">
+                <el-input v-model="assistantReplyTo" maxlength="80" placeholder="回复给（白名单昵称或 ID）" />
+                <el-input v-model="assistantReplyText" maxlength="500" type="textarea" :rows="2" placeholder="回复内容，最多 500 字" />
+              </div>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+                <el-button type="primary" :loading="assistantSending" :disabled="!assistant.enabled || !assistant.allowlist.length" @click="sendAssistantReply">排队回复</el-button>
+                <el-button :loading="assistantLoading" @click="loadAssistantStatus">刷新状态</el-button>
+              </div>
+              <p v-if="assistant.replyMessage" class="status-detail" role="status">{{ assistant.replyMessage }}</p>
+              <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border-color);">
+                <h4 style="font-size:14px; margin:0 0 8px;">小号登录</h4>
+                <p class="status-detail">请用小号的抖音 App 扫码。登录态写入独立文件，不会替换主号凭证。</p>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0;">
+                  <el-button v-if="!assistantQr.hasJob && !assistantQr.startUnconfirmed" type="primary" :disabled="!assistant.enabled || assistantQr.running" @click="startAssistantQr">{{ assistantQr.status==='success' ? '重新扫码' : '小号扫码登录' }}</el-button>
+                  <el-button v-if="assistantQr.canRefresh" type="primary" @click="refreshAssistantQr">刷新二维码</el-button>
+                  <el-button v-if="assistantQr.hasJob || assistantQr.running" :disabled="assistantQr.status==='cancelling'" @click="cancelAssistantQr">取消</el-button>
+                  <el-button :disabled="assistantQr.running || assistantQr.hasJob" @click="$refs.assistantStateInput.click()">上传小号 state</el-button>
+                  <input type="file" ref="assistantStateInput" accept=".json,application/json" style="display:none" @change="uploadAssistantState" />
+                </div>
+                <div v-if="assistantQr.imageUrl || assistantQr.verificationImageUrl" style="width:min(100%, 280px); background:#fff; border:1px solid #d1d5db; border-radius:16px; padding:12px;">
+                  <img v-if="assistantQr.status==='verification_required' && assistantQr.verificationImageUrl" :src="assistantQr.verificationImageUrl" alt="小号登录验证图片" draggable="false" @dragstart.prevent @pointerdown="assistantVerificationPointerDown" @pointermove="assistantVerificationPointerMove" @pointerup="assistantVerificationPointerUp" @pointercancel="assistantVerificationPointerCancel" style="display:block; width:100%; height:auto; touch-action:none;" />
+                  <img v-else-if="assistantQr.imageUrl" :src="assistantQr.imageUrl" alt="小号登录二维码" style="display:block; width:100%; height:auto;" />
+                </div>
+                <p class="status-detail" role="status">{{ assistantQr.message }}</p>
+                <p v-if="assistantQr.error" role="alert" style="font-size:13px; color:var(--color-danger);">{{ assistantQr.error }}</p>
+              </div>
+            </div>
+
             <!-- 顶部两个可点击的小框架（WAAPI 像素手风琴） -->
             <div id="emailBar" :class="{'is-expanded':!!emailSubView}" style="display:flex; width:100%; gap:10px; margin-bottom:16px; max-width:340px;">
               <button type="button" class="card no-tilt email-view-button" :class="{'is-collapsed':emailSubView === 'text'}" aria-label="卡死告警邮箱设置" :aria-expanded="emailSubView === 'smtp'" style="width:min(165px, calc((100% - 10px) / 2)); flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px; cursor:pointer; box-sizing:border-box; overflow:hidden;"
@@ -2258,7 +2305,7 @@
   <script src="/static/vendor/vue.global.prod.js"></script>
   <script src="/static/vendor/element-plus.full.min.js"></script>
   <script src="/static/vendor/axios.min.js"></script>
-  <script src="/static/qr-login.js?v=2.8-request-guard"></script>
+  <script src="/static/qr-login.js?v=2.8-assistant"></script>
 
   <script>
     const { createApp, ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -2948,6 +2995,9 @@
           savingLedger.value = false; savingConfig.value = false; savingEmail.value = false; testingEmail.value = false;
           webhook.enabled = false; webhook.debounceSeconds = 600; webhook.deliveries = []; webhook.message = '';
           testingWebhook.value = false;
+          Object.assign(assistant, defaultAssistantStatus());
+          assistantReplyTo.value = ''; assistantReplyText.value = ''; assistant.replyMessage = '';
+          assistantSending.value = false; assistantLoading.value = false;
           ledgerWriteOwner = null; ledgerWriteBusy.value = false; ledgerWriteLabel.value = '';
           pendingRetryBusy.value = false;
 
@@ -3123,9 +3173,9 @@
         const webhookStatusLabel = computed(() => webhook.enabled ? '已启用' : '未配置');
         const webhookHint = computed(() => {
           if (!webhook.enabled) return '未设置 Webhook 地址时不会外发。在服务器 .env 填写后重启即可启用。此页不显示地址或密钥。';
-          if (webhook.debounceSeconds <= 0) return '已启用。相同事件不会按时间间隔合并。任务卡死和测试发送始终发出。地址和密钥不在此页显示。';
+          if (webhook.debounceSeconds <= 0) return '已启用。相同事件不会按时间间隔合并。任务卡死、测试发送和小号消息始终发出。地址和密钥不在此页显示。';
           const minutes = Math.max(1, Math.round(webhook.debounceSeconds / 60));
-          return '已启用。相同事件约 ' + minutes + ' 分钟内只发送一次。任务卡死和测试发送不受此限制。地址和密钥不在此页显示。';
+          return '已启用。相同事件约 ' + minutes + ' 分钟内只发送一次。任务卡死、测试发送和小号消息不受此限制。地址和密钥不在此页显示。';
         });
         const webhookResultLabel = result => result === 'ok' ? '成功' : result === 'fail' ? '失败' : result === 'suppressed' ? '已跳过' : '';
         const acceptWebhookDelivery = item => {
@@ -3179,9 +3229,153 @@
           }
         };
 
+        const defaultAssistantStatus = () => ({
+          enabled:false, session_ok:null, session_file:false, last_poll:'', poll_seconds:90,
+          allowlist:[], recent:[], pending_replies:0, last_error:'', replyMessage:'', qr_active:false,
+        });
+        const assistant = reactive(defaultAssistantStatus());
+        const assistantReplyTo = ref('');
+        const assistantReplyText = ref('');
+        const assistantSending = ref(false);
+        const assistantLoading = ref(false);
+        const assistantQr = reactive({status:'idle', running:false, message:'', error:'', imageUrl:'', hasJob:false, canRefresh:false, verificationImageUrl:'', startUnconfirmed:false});
+        let assistantQrController = null;
+        const assistantStatusLabel = computed(() => {
+          if (!assistant.enabled) return '未启用';
+          if (assistant.session_ok === true) return '会话正常';
+          if (assistant.session_ok === false) return '登录失效';
+          return assistant.session_file ? '已有登录文件' : '尚未检查';
+        });
+        const assistantHint = computed(() => {
+          if (!assistant.enabled) return '在 .env 设置 ASSISTANT_INBOX_ENABLED=1 并重启后才会轮询。此页不显示密钥。';
+          if (!assistant.allowlist.length) return '白名单为空。服务不会打开小号浏览器，也不会转发或回复。';
+          return '只处理白名单里的昵称或 ID。文字和分享卡片标题会转发；看不到视频内容。回复每 10 秒最多一条。';
+        });
+        const acceptAssistantRecent = item => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+          const messageId = typeof item.message_id === 'string' ? item.message_id.slice(0, 200) : '';
+          if (!messageId) return null;
+          return {
+            message_id: messageId,
+            conversation_name: typeof item.conversation_name === 'string' ? item.conversation_name.slice(0, 80) : '',
+            message_time: typeof item.message_time === 'string' ? item.message_time.slice(0, 40) : '',
+            kind: item.kind === 'share' ? 'share' : 'text',
+            preview: typeof item.preview === 'string' ? item.preview.slice(0, 80) : '',
+          };
+        };
+        const applyAssistantStatus = data => {
+          const source = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+          assistant.enabled = source.enabled === true;
+          assistant.session_ok = source.session_ok === true ? true : source.session_ok === false ? false : null;
+          assistant.session_file = source.session_file === true;
+          assistant.last_poll = typeof source.last_poll === 'string' ? source.last_poll.slice(0, 40) : '';
+          const seconds = Number(source.poll_seconds);
+          assistant.poll_seconds = Number.isFinite(seconds) ? Math.max(60, Math.min(3600, Math.floor(seconds))) : 90;
+          assistant.allowlist = Array.isArray(source.allowlist) ? source.allowlist.filter(item => typeof item === 'string' && item.length <= 80).slice(0, 50) : [];
+          assistant.recent = (Array.isArray(source.recent) ? source.recent : []).map(acceptAssistantRecent).filter(Boolean).slice(0, 30);
+          const pending = Number(source.pending_replies);
+          assistant.pending_replies = Number.isFinite(pending) && pending >= 0 ? Math.floor(pending) : 0;
+          assistant.last_error = typeof source.last_error === 'string' ? source.last_error.slice(0, 180) : '';
+          assistant.qr_active = source.qr_active === true;
+        };
+        const loadAssistantStatus = async () => {
+          const ticket = beginManagedRead('assistant');
+          assistantLoading.value = true;
+          try {
+            const res = await api.get('/api/assistant/status', ticket.options);
+            if (!ticket.current()) return false;
+            applyAssistantStatus(res.data);
+            return true;
+          } catch (e) {
+            if (!ticket.current()) return false;
+            console.error('Failed to load assistant status', e);
+            return false;
+          } finally {
+            finishManagedRead(ticket);
+            if (ticket.current()) assistantLoading.value = false;
+          }
+        };
+        const sendAssistantReply = async () => {
+          if (!assistant.enabled || assistantSending.value) return false;
+          const to = assistantReplyTo.value.trim();
+          const text = assistantReplyText.value.trim();
+          if (!to || !text) {
+            assistant.replyMessage = '请填写回复对象和内容。';
+            return false;
+          }
+          const requestEpoch = managementEpoch;
+          assistantSending.value = true;
+          try {
+            const res = await api.post('/api/assistant/reply', {to, text});
+            if (!managementCurrent(requestEpoch)) return false;
+            assistant.replyMessage = res.data?.queued ? '回复已排队，将由小号在下一轮发出。' : '回复未能排队。';
+            if (res.data?.queued) {
+              assistantReplyText.value = '';
+              ElementPlus.ElMessage.success(assistant.replyMessage);
+            }
+            await loadAssistantStatus();
+            return res.data?.queued === true;
+          } catch (e) {
+            if (!managementCurrent(requestEpoch)) return false;
+            assistant.replyMessage = e.response?.data?.detail || '回复未能排队。';
+            ElementPlus.ElMessage.error(assistant.replyMessage);
+            return false;
+          } finally {
+            if (managementCurrent(requestEpoch)) assistantSending.value = false;
+          }
+        };
+        const uploadAssistantState = async event => {
+          const input = event.target;
+          const file = input.files && input.files[0];
+          input.value = '';
+          if (!file) return false;
+          const requestEpoch = managementEpoch;
+          const body = new FormData();
+          body.append('file', file);
+          try {
+            await api.post('/api/assistant/state', body);
+            if (!managementCurrent(requestEpoch)) return false;
+            showIOSBanner('上传成功', '小号登录态已保存，主号凭证未改动');
+            await loadAssistantStatus();
+            return true;
+          } catch (e) {
+            if (!managementCurrent(requestEpoch)) return false;
+            showIOSBanner('上传失败', e.response?.data?.detail || '小号登录态未保存');
+            return false;
+          }
+        };
+        const updateAssistantQr = snapshot => { Object.assign(assistantQr, snapshot || {}); };
+        function getAssistantQrController() {
+          if (assistantQrController) return assistantQrController;
+          if (!window.SparkQrLogin) throw new Error('二维码登录组件未加载，请刷新页面后重试。');
+          assistantQrController = window.SparkQrLogin.create({
+            api,
+            base: '/api/assistant/qr',
+            successMessage: '小号登录成功，已保存独立登录态，不影响主号。',
+            onChange: updateAssistantQr,
+            onSuccess: async () => {
+              if (!authed.value) return;
+              await loadAssistantStatus();
+              if (authed.value) showIOSBanner('小号登录成功', '已保存小号登录态');
+            },
+          });
+          return assistantQrController;
+        }
+        function startAssistantQr() {
+          if (!assistant.enabled || assistantQr.running || !authed.value) return;
+          try { return getAssistantQrController().start(); }
+          catch (_) { Object.assign(assistantQr, {status:'failed', running:false, message:'二维码登录组件未加载，请刷新页面后重试。'}); }
+        }
+        function refreshAssistantQr() { if (assistantQrController && authed.value) return assistantQrController.refresh(); }
+        function cancelAssistantQr() { if (assistantQrController) return assistantQrController.cancel(); }
+        function assistantVerificationPointerDown(event) { if (assistantQrController && authed.value) return assistantQrController.verificationPointerDown(event); }
+        function assistantVerificationPointerMove(event) { if (assistantQrController && authed.value) return assistantQrController.verificationPointerMove(event); }
+        function assistantVerificationPointerUp(event) { if (assistantQrController && authed.value) return assistantQrController.verificationPointerUp(event); }
+        function assistantVerificationPointerCancel(event) { if (assistantQrController) return assistantQrController.verificationPointerCancel(event); }
+
         const loadAll = async () => {
           if (managementDisposed) return false;
-          await Promise.all([loadStatus({reuse:true}), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig(), loadWebhookStatus()]);
+          await Promise.all([loadStatus({reuse:true}), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig(), loadWebhookStatus(), loadAssistantStatus()]);
         };
 
         const pendingRetryBusy = ref(false);
@@ -3630,6 +3824,8 @@
           cancelContactSync();
           clearManagementData();
           if (qrLoginController) { qrLoginController.dispose(); qrLoginController = null; }
+          if (assistantQrController) { assistantQrController.dispose(); assistantQrController = null; }
+          Object.assign(assistantQr, {status:'idle', running:false, message:'', error:'', imageUrl:'', hasJob:false, canRefresh:false, verificationImageUrl:'', startUnconfirmed:false});
           Object.assign(qrLogin, defaultQrLogin);
           qrStepMotion?.update(defaultQrLogin);
           authed.value = true;
@@ -3717,6 +3913,7 @@
           window.SparkReferenceMotion?.destroy();
           if (qrStepMotion) qrStepMotion.dispose();
           if (qrLoginController) { qrLoginController.dispose(); qrLoginController=null; }
+          if (assistantQrController) { assistantQrController.dispose(); assistantQrController=null; }
         });
         return {
           tab,
@@ -3848,6 +4045,24 @@
           applyWebhookStatus,
           loadWebhookStatus,
           sendTestWebhook,
+          assistant,
+          assistantStatusLabel,
+          assistantHint,
+          assistantReplyTo,
+          assistantReplyText,
+          assistantSending,
+          assistantLoading,
+          assistantQr,
+          loadAssistantStatus,
+          sendAssistantReply,
+          uploadAssistantState,
+          startAssistantQr,
+          refreshAssistantQr,
+          cancelAssistantQr,
+          assistantVerificationPointerDown,
+          assistantVerificationPointerMove,
+          assistantVerificationPointerUp,
+          assistantVerificationPointerCancel,
           emailSubView,
           openTab,
           selectEmail,
