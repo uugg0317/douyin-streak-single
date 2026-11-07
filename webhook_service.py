@@ -5,7 +5,8 @@
 发送密钥同时放在 Authorization: Bearer 与 X-Webhook-Key。例程按 Bearer 校验。
 
 相同事件默认 10 分钟内只实际 POST 一次（GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS）。
-watchdog_stuck 与 test_ping 不受这个间隔限制。
+watchdog_stuck、test_ping 与 assistant_message 不受这个间隔限制。
+assistant_message 由小号收件在调用前限制为每小时最多 20 条。
 最近投递只留在本进程内存里，记录里没有地址、密钥或响应正文。
 """
 
@@ -32,7 +33,7 @@ WEBHOOK_TIMEOUT_SECONDS = 4
 DEFAULT_DEBOUNCE_SECONDS = 600
 _MAX_DETAILS_BYTES = 8000
 _MAX_DELIVERIES = 20
-_NEVER_DEBOUNCE = frozenset({"watchdog_stuck", "test_ping"})
+_NEVER_DEBOUNCE = frozenset({"watchdog_stuck", "test_ping", "assistant_message"})
 _EVENT_NAME = re.compile(r"^[a-z0-9_]{1,40}$")
 _DELIVERY_RESULTS = frozenset({"ok", "fail", "suppressed"})
 
@@ -113,9 +114,13 @@ def _record(event: str, result: str) -> None:
         _remember(event, result)
 
 
-def _claim_send(event: str) -> bool:
-    """决定这次要不要 POST。被间隔拦住时记一条「已跳过」并返回 False。"""
-    if event in _NEVER_DEBOUNCE:
+def _claim_send(event: str, *, bypass_debounce: bool = False) -> bool:
+    """决定这次要不要 POST。被间隔拦住时记一条「已跳过」并返回 False。
+
+    bypass_debounce 只放行这一次，不改写该事件的防抖时钟，避免小号登录态
+    通知挡住或被主号的 credential_invalid 挡住。
+    """
+    if bypass_debounce or event in _NEVER_DEBOUNCE:
         return True
     window = debounce_seconds()
     if window <= 0:
@@ -130,19 +135,21 @@ def _claim_send(event: str) -> bool:
         return True
 
 
-def notify_event(event_type: str, payload: dict | None = None) -> bool:
+def notify_event(event_type: str, payload: dict | None = None, *,
+                 bypass_debounce: bool = False) -> bool:
     """POST 一条事件。成功返回 True；未启用、地址无效或投递失败返回 False。
 
     payload 只读取 summary（短文本）和 details（对象）。其他键忽略。
     """
     try:
-        return _notify_event(event_type, payload)
+        return _notify_event(event_type, payload, bypass_debounce=bypass_debounce)
     except Exception as exc:
         logger.warning("Webhook 通知失败（%s）：%s", event_type, _public_error(exc))
         return False
 
 
-def _notify_event(event_type: str, payload: dict | None) -> bool:
+def _notify_event(event_type: str, payload: dict | None, *,
+                  bypass_debounce: bool = False) -> bool:
     url = os.environ.get("GROK_BOT_WEBHOOK_URL", "").strip()
     if not url:
         logger.debug("Webhook 未配置，跳过 %s", event_type)
@@ -150,7 +157,7 @@ def _notify_event(event_type: str, payload: dict | None) -> bool:
     if not isinstance(event_type, str) or not event_type.strip():
         return False
     event = event_type.strip()
-    if not _claim_send(event):
+    if not _claim_send(event, bypass_debounce=bypass_debounce):
         logger.info("Webhook 已跳过重复事件：%s", _safe_event(event))
         return False
     parsed = urllib.parse.urlparse(url)
@@ -244,6 +251,13 @@ def _sanitize(value, depth: int = 0, key: str = ""):
     if isinstance(value, float):
         return value if value == value and abs(value) != float("inf") else None
     if isinstance(value, str):
-        limit = 1200 if key == "stack_excerpt" else 400
+        if key == "stack_excerpt":
+            limit = 1200
+        elif key == "message_text":
+            limit = 2000
+        elif key == "share_url":
+            limit = 800
+        else:
+            limit = 400
         return _redact_text(value)[:limit]
     return _redact_text(str(value))[:200]

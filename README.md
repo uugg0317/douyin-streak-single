@@ -90,9 +90,50 @@ GROK_BOT_WEBHOOK_KEY=<发送密钥>
 
 控制台「邮箱」页只显示 **已启用** 或 **未配置**，并可以发送一条测试事件。页面上的最近投递只含时间、事件名和成功、失败或已跳过，不显示地址或密钥。记录只留在当前进程内存里，重启后清空。
 
-相同事件默认约 10 分钟只实际发送一次。可选环境变量 `GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS` 修改这个间隔，`0` 表示不合并。任务卡死（`watchdog_stuck`）和控制台测试（`test_ping`）每次都会发送。
+相同事件默认约 10 分钟只实际发送一次。可选环境变量 `GROK_BOT_WEBHOOK_DEBOUNCE_SECONDS` 修改这个间隔，`0` 表示不合并。任务卡死（`watchdog_stuck`）、控制台测试（`test_ping`）和小号消息（`assistant_message`）每次都会发送。小号消息另有每小时 20 条的上限。
 
 未填写 `GROK_BOT_WEBHOOK_URL` 时不会发起请求。Webhook 失败只记日志，发送任务和邮件告警继续按原逻辑执行。字段里可以有好友昵称和计数，不会附带 Cookie 或令牌。
+
+## 小号聊天助手
+
+可选。用另一个抖音号作为私人收件箱：从主号给这个小号发文字，或分享一条视频。服务轮询小号的网页私信，把新消息 POST 成 `assistant_message`，再把回复从小号发回去。回复不会从正在续火花的主号发出，也只会发给白名单里的人。
+
+### 注册小号并登录
+
+1. 在抖音 App 里准备一个专用小号。不要把正在续火花的主号登录进这个功能。
+2. 在项目根目录 `.env` 写入（该文件不要提交）：
+
+```
+ASSISTANT_INBOX_ENABLED=1
+ASSISTANT_POLL_SECONDS=90
+ASSISTANT_ALLOWED_SENDERS=主号昵称
+```
+
+`ASSISTANT_POLL_SECONDS` 默认 90，小于 60 时按 60 秒处理。`ASSISTANT_ALLOWED_SENDERS` 是英文逗号分隔的昵称或账号 ID。它是唯一允许转发、也是唯一允许接收回复的名单。留空时服务不打开小号浏览器，不转发，也不回复任何人。
+
+3. 重启本机服务。
+4. 打开控制台「邮箱」页的「小号聊天助手」，点击「小号扫码登录」，用小号的抖音 App 扫码并确认。
+5. 登录态写入 `data/assistant_state.json`，浏览器目录是 `data/assistant-browser-profile`。扫码过程使用 `data/assistant-session/qr-login-profile`。这三处都和主号的 `data/state.json`、主号扫码目录分开。也可以在同一张卡片里上传小号自己的 Playwright `storage_state` 文件，上传不会重启主号浏览器。
+
+### 消息和回复
+
+从主号给小号发私信，或分享一个视频。下一轮轮询会把白名单里的新消息发给已配置的 Webhook。事件名是 `assistant_message`，内容包括会话显示名、发送者 ID（页面提供时）、正文、分享卡片的标题和链接、消息时间和稳定消息 ID。它不受 Webhook 的 10 分钟合并限制，但每小时最多转发 20 条。同一条消息 ID 只转发一次，记录在 `data/assistant_inbox.json`。
+
+回复有三种入口，最终都由小号浏览器发出：
+
+- 控制台卡片里的回复框。
+- 本机 `POST /api/assistant/reply`，JSON 为 `{"to","text"}`。和其它接口一样只接受回环地址，并要求 `X-Requested-With: sparkkeeper`。`to` 必须命中白名单，正文最多 500 字，手动回复每 10 秒最多接受 1 条。
+- 可选拉取。设置 `ASSISTANT_REPLY_PULL_URL` 后，每轮对该地址发 GET，读取 JSON 数组，或 `{"replies":[...]}`。每项是 `{"id","to","text"}`。若设置了 `ASSISTANT_REPLY_PULL_KEY`，请求会带 `Authorization: Bearer` 和 `X-Reply-Key`。接受或拒绝后，向同一地址 POST `{"ack":["id"]}`。这两个变量留空时不会发起拉取。
+
+`GET /api/assistant/status` 返回是否启用、最近一次登录检查、上次轮询、白名单和最近消息摘要。日志不写正文、Cookie、Webhook 地址或拉取密钥。
+
+### 做不到的事和风险
+
+- 不能打开或理解视频内容。分享卡片只会带上页面上能读到的标题和链接。
+- 延迟大约是一轮轮询，默认约 1 到 2 分钟，不是实时推送。
+- 小号走的是抖音网页版。轮询私信和扫码登录都可能触发验证码、限流或登录失效。本功能不绕过验证。登录失效时会发一条 `credential_invalid`（`details.account` 为 `assistant`），恢复之前不会重复发送。
+- 会话列表和消息节点沿用本项目已有的网页类名，并尝试读取 `data-message-id`、`data-user-id` 和视频链接。抖音改版后这些选择器可能失效，届时轮询会记失败原因，不会改用主号去发。
+- 名单里的昵称必须和会话标题完全一致。同名会话多于一个时不会发送，避免发错人。
 
 ## 开发与验证
 
