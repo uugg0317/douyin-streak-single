@@ -23,7 +23,7 @@ router = APIRouter()
 def _today_summary() -> dict:
     """Count stable ledger identities, never infer delivery from a run record."""
     today = business_now().date()
-    selected, accepted, unconfirmed, unsafe = set(), set(), set(), set()
+    selected, accepted, unconfirmed, unsafe, verified_failed = set(), set(), set(), set(), set()
     historical = False
     for entry in ledger.load_ledger():
         key = str(entry.get("entry_id") or "")
@@ -44,10 +44,13 @@ def _today_summary() -> dict:
             historical = historical or timestamp_date(when) != today
         if timestamp_date(entry.get("last_sent_at")) == today:
             accepted.add(key)
+        if (entry.get("send_attempt") or {}).get("status") == "failed_observed":
+            verified_failed.add(key)
     accepted -= unconfirmed
     return {"business_date": today.isoformat(), "accepted": len(accepted),
-            "unconfirmed": len(unconfirmed), "pending": len(selected - unsafe - accepted - unconfirmed),
-            "selected": len(selected), "includes_historical_unconfirmed": historical}
+            "unconfirmed": len(unconfirmed), "pending": len(selected - unsafe - accepted - unconfirmed - verified_failed),
+            "selected": len(selected), "includes_historical_unconfirmed": historical,
+            "streak_warnings": ledger.streak_expiry_warnings()}
 
 
 @router.get("/")
@@ -103,6 +106,7 @@ def api_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
         "stop_reason": rt.get("stop_reason") if stopping else None,
         "last_run": rt.get("last_run"),
         "today_summary": _today_summary(),
+        "active_send_diagnostics": ledger.active_send_diagnostics(),
         "pending_retry_entries": rt.get("pending_retry_entries") or [],
         "pending_retry_count": len(rt.get("pending_retry_entries") or []),
         "retry_status": rt.get("retry_status", "none"),

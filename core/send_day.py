@@ -38,8 +38,12 @@ def daily_skip_code(entry: dict, *, now: datetime | None = None) -> str | None:
     """仅判断当日保护原因；干跑与显式 force 由调用方决定是否应用。"""
     # New durable intents remain unresolved across midnight until an explicit
     # force operation confirms the user's decision; a date change is no evidence.
-    if (entry.get("send_attempt") or {}).get("status") in {"sending", "unconfirmed"}:
+    attempt_status = (entry.get("send_attempt") or {}).get("status")
+    if attempt_status in {"sending", "unconfirmed"}:
         return "unconfirmed_today"
+    # 核对已经看见失败或重发标记。当天不再自动重发，也不能再显示成待核对。
+    if attempt_status == "failed_observed":
+        return "verified_send_failed"
     current = now if now is not None else business_now()
     if current.tzinfo is None:
         current = current.replace(tzinfo=SEND_TIMEZONE)

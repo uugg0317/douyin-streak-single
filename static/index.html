@@ -1739,6 +1739,8 @@
               </div>
               <p class="today-results__message" role="status" aria-live="polite" aria-atomic="true">{{ todayResultMessage }}</p>
               <p class="status-detail">{{ todayResultDetail }}</p>
+              <p v-if="streakWarningMessage" class="status-detail" role="status" style="background:#fff0dd;color:#6c2600;font-weight:700;padding:6px 8px;">{{ streakWarningMessage }}</p>
+              <p v-if="activeDiagnosticMessage" class="status-detail" role="status">{{ activeDiagnosticMessage }}</p>
             </section>
 
             <!-- 连续失败告警：不改变定时任务和用户开关 -->
@@ -1971,8 +1973,12 @@
                       <span style="font-size:12px;flex-shrink:0;white-space:normal;" :title="streakDetail(row)">{{ streakDisplay(row) }}</span>
                     </div>
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">{{ contactTimeDisplay(row) }}</div>
-                    <div v-if="row.streak_status" style="font-size:12px;margin-top:3px;white-space:normal" :style="streakStale(row) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(row) }}</div>
+                    <div v-if="row.streak_status || row.streak_seen_at || row.streak_label" style="font-size:12px;margin-top:3px;white-space:normal" :style="streakStale(row) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(row) }}</div>
+                    <div v-if="streakExpiring(row)" role="status" style="font-size:12px;margin-top:3px;background:#fff0dd;color:#6c2600;font-weight:700;padding:2px 4px;">火花即将消失：{{ row.streak_label }}</div>
+                    <div v-if="row.active_diagnostic_reason" style="font-size:12px;margin-top:3px;">待核对原因：{{ row.active_diagnostic_reason }}</div>
+                    <div v-if="verificationLabel(row)" style="font-size:12px;margin-top:3px;">{{ verificationLabel(row) }}</div>
                     <div v-if="identityDescription(row)" style="font-size:12px;margin-top:3px;">{{ identityDescription(row) }}</div>
+                    <el-button v-if="row.last_status === 'unconfirmed' || row.last_status === 'sending'" size="small" style="margin-top:6px" :disabled="!identityDecisionAllowed" @click.stop="confirmSent(row)">我已在抖音确认发出</el-button>
                   </div>
                   <!-- 状态标签 -->
                   <el-tag v-if="row.identity_ambiguous" type="warning" size="small" style="flex-shrink:0;pointer-events:none;">同名会话</el-tag>
@@ -2006,7 +2012,11 @@
                     <div class="user-name">{{ item.nickname }}</div>
                     <div class="user-sub">{{ contactTimeDisplay(item) }}</div>
                     <div v-if="identityDescription(item)" class="user-sub">{{ identityDescription(item) }}</div>
-                    <div v-if="item.streak_status" class="user-sub" style="white-space:normal" :style="streakStale(item) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(item) }}</div>
+                    <div v-if="item.streak_status || item.streak_seen_at || item.streak_label" class="user-sub" style="white-space:normal" :style="streakStale(item) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(item) }}</div>
+                    <div v-if="streakExpiring(item)" role="status" class="user-sub" style="background:#fff0dd;color:#6c2600;font-weight:700;padding:2px 4px;">火花即将消失：{{ item.streak_label }}</div>
+                    <div v-if="item.active_diagnostic_reason" class="user-sub">待核对原因：{{ item.active_diagnostic_reason }}</div>
+                    <div v-if="verificationLabel(item)" class="user-sub">{{ verificationLabel(item) }}</div>
+                    <el-button v-if="item.last_status === 'unconfirmed' || item.last_status === 'sending'" size="small" :disabled="!identityDecisionAllowed" @click.stop="confirmSent(item)">我已在抖音确认发出</el-button>
                   </div>
                   <div class="pill-group" style="max-width:45%;flex-wrap:wrap;justify-content:flex-end">
                     <span class="spark-pill" style="white-space:normal;max-width:100%;overflow-wrap:anywhere" :title="streakDetail(item)">{{ streakBadge(item) }}</span>
@@ -2491,6 +2501,7 @@
           retry_status: 'none',
           retry_dispatching: false,
           pending_retry_entries: [],
+          active_send_diagnostics: [],
         };
         const status = reactive({...defaultStatus});
         const todaySummary = ref(null);
@@ -2499,8 +2510,17 @@
           const date = new Date(value.business_date + 'T00:00:00Z');
           if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== value.business_date) return null;
           if (!['accepted','unconfirmed','pending','selected'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0) || typeof value.includes_historical_unconfirmed !== 'boolean') return null;
+          const streakWarnings = Array.isArray(value.streak_warnings) ? value.streak_warnings.flatMap(item => {
+            if (!item || typeof item !== 'object') return [];
+            const name = typeof item.display_name === 'string' ? item.display_name.slice(0, 80) : '';
+            const label = typeof item.streak_label === 'string' ? item.streak_label.slice(0, 32) : '';
+            const days = item.expires_in_days;
+            if (!name || !/^[0-9]+\s*天后消失$/.test(label) || !Number.isSafeInteger(days) || days < 0 || days > 3) return [];
+            return [{display_name:name, streak_label:label, expires_in_days:days, observed_at:typeof item.observed_at === 'string' ? item.observed_at.slice(0, 40) : ''}];
+          }) : [];
           return {business_date:value.business_date, accepted:value.accepted, unconfirmed:value.unconfirmed,
-            pending:value.pending, selected:value.selected, includes_historical_unconfirmed:value.includes_historical_unconfirmed};
+            pending:value.pending, selected:value.selected, includes_historical_unconfirmed:value.includes_historical_unconfirmed,
+            streak_warnings:streakWarnings};
         };
         const backgroundPauseMessage = computed(() => status.status_connected && status.background_tasks_enabled === false
           ? '自动任务未启用：本次启动已暂停后台任务，本机默认只手动执行；今日已有结果也不会自动开启后台任务。' : '');
@@ -2516,6 +2536,16 @@
           return (value.includes_historical_unconfirmed ? '待核对人数包含历史未决结果。' : '') +
             (value.unconfirmed > 0 ? '请在抖音核对待核对对象，勿直接重发。' : '') +
             '已确认接受不代表对方已读，也不保证火花增长。';
+        });
+        const streakWarningMessage = computed(() => {
+          const warnings = (todaySummary.value && todaySummary.value.streak_warnings) || [];
+          if (!warnings.length) return '';
+          return '火花即将消失：' + warnings.map(item => item.display_name + '（' + item.streak_label + (item.observed_at ? '，观察于 ' + item.observed_at : '') + '）').join('、');
+        });
+        const activeDiagnosticMessage = computed(() => {
+          const items = status.active_send_diagnostics || [];
+          if (!items.length) return '';
+          return '仍待核对：' + items.map(item => item.display_name + '（' + item.reason + '）').join('、') + '。确认发出后，这些诊断会标记为已取代。';
         });
         const BASE_DOC_TITLE = '抖音自动续火花 2.8 · Douyin Cloud Streak';
         let pollDelay = 10000;
@@ -2676,7 +2706,7 @@
           if (row.streak_status === 'suspect') return '读数待核对' + history;
           if (row.streak_status === 'reset_pending') return `可能已重新开始（历史 ${days} 天 → 新读数 ${row.streak_suspect_value} 天，待确认）`;
           if (row.streak_status === 'none') return '已确认无火花';
-          return days > 0 ? `🔥 ${days} 天` : '尚无确认火花记录';
+          return days > 0 ? (`🔥 ${days} 天` + (row.streak_at_risk === true ? ' · 灰色' : '')) : '尚无确认火花记录';
         };
         const streakAge = row => {
           let day=row.streak_confirmed_date, days=row.streak_unconfirmed_days;
@@ -2692,8 +2722,42 @@
           const stale=known ? row.streak_may_be_stale===true : ['unknown','suspect','reset_pending'].includes(row.streak_status) && days>3;
           return {label:`最后确认于 ${day}（${days} 天前）${stale?' · 可能已过期':''}`,stale};
         };
-        const streakDetail = row => streakAge(row).label;
-        const streakStale = row => streakAge(row).stale;
+        const formatObserved = value => {
+          const date = new Date(value || '');
+          if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now() + 120000) return '';
+          return date.toLocaleString('zh-CN', {hour12:false, timeZone:'Asia/Shanghai'});
+        };
+        const observationDay = value => {
+          const date = new Date(value || '');
+          if (!Number.isFinite(date.getTime())) return '';
+          return new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit'}).format(date);
+        };
+        const streakExpiring = row => {
+          const matched = String(row.streak_label || '').match(/^([0-9]+)\s*天后消失$/);
+          return !!matched && Number(matched[1]) <= 3;
+        };
+        const observationStale = row => {
+          const day = observationDay(row.streak_seen_at || row.streak_confirmed_at);
+          if (!day) return streakAge(row).stale;
+          return day !== observationDay(new Date().toISOString());
+        };
+        const streakDetail = row => {
+          const age = streakAge(row);
+          const observed = formatObserved(row.streak_seen_at || row.streak_confirmed_at);
+          const stale = observationStale(row);
+          const observedLabel = observed ? ((row.streak_at_risk === true ? '灰色火花 · ' : '') + (stale ? '缓存读数 · ' : '') + '观察于 ' + observed) : age.label;
+          if (streakExpiring(row)) return `火花即将消失：${row.streak_label} · ${observedLabel}`;
+          if (stale && observed) return `${observedLabel} · ${age.label}`;
+          return observed ? observedLabel : age.label;
+        };
+        const streakStale = row => streakAge(row).stale || observationStale(row) || streakExpiring(row);
+        const verificationLabel = row => {
+          if (row.send_verification_status === 'confirmed' && row.send_verification_by === 'user_confirmed_sent') return '已按人工核对标记为发出，不会自动重发';
+          if (row.send_verification_status === 'confirmed') return '发送后已在会话中核对，不会自动重发';
+          if (row.send_verification_status === 'failed') return '核对到发送失败，不会自动重发';
+          if (row.send_verification_status === 'pending_review') return '发送后仍待核对，不会自动重发';
+          return '';
+        };
         const streakBadge = row => row.streak_status==='reset_pending' ? '重置待确认' : streakDisplay(row);
         // 特殊火花纳入人数和勾选，但标签数字不是火花天数。
         const hasSpecialStreak = row => !['suspect','reset_pending','none'].includes(row.streak_status) && /^(?:重燃中\s*[0-9]+\s*\/\s*[0-9]+|[0-9]+\s*天后消失)$/.test(row.streak_label || '');
@@ -2821,6 +2885,14 @@
             status.retry_dispatching = res.data.retry_dispatching === true || res.data.retry_status === 'dispatching';
             status.retry_status = status.retry_dispatching ? 'dispatching' : ['manual','scheduled'].includes(res.data.retry_status) ? res.data.retry_status : 'none';
             status.pending_retry_entries = Array.isArray(res.data.pending_retry_entries) ? res.data.pending_retry_entries : [];
+            status.active_send_diagnostics = Array.isArray(res.data.active_send_diagnostics) ? res.data.active_send_diagnostics.flatMap(item => {
+              if (!item || typeof item !== 'object') return [];
+              const name = typeof item.display_name === 'string' ? item.display_name.slice(0, 80) : '';
+              const reason = typeof item.reason === 'string' ? item.reason.slice(0, 80) : '';
+              const phase = typeof item.phase === 'string' ? item.phase.slice(0, 80) : '';
+              if (!name || !reason || item.status !== 'pending_review' || item.superseded === true) return [];
+              return [{display_name:name, reason, phase, business_date:typeof item.business_date === 'string' ? item.business_date.slice(0, 10) : ''}];
+            }) : [];
             todaySummary.value = parseTodaySummary(res.data.today_summary);
             Object.assign(lastRunInfo, summarizeLastRun(res.data.last_run));
             // 连续失败时标签页标题加警示（比声音/震动可靠，不依赖浏览器前台或静音）
@@ -2878,6 +2950,7 @@
               streak_days: Number(item.streak_days || item.spark_days || 0),
               streak_status: item.streak_status || null,
               streak_label: item.streak_label || null,
+              streak_at_risk: item.streak_at_risk === true,
               streak_source: item.streak_source || null,
               streak_seen_at: item.streak_seen_at || null,
               streak_confirmed_at: item.streak_confirmed_at || null,
@@ -2885,6 +2958,9 @@
               streak_unconfirmed_days: Number.isInteger(item.streak_unconfirmed_days) ? item.streak_unconfirmed_days : null,
               streak_may_be_stale: item.streak_may_be_stale===true,
               streak_age_known: Object.hasOwn(item,'streak_unconfirmed_days'),
+              send_verification_status: ['confirmed','failed','pending_review'].includes(item.send_verification_status) ? item.send_verification_status : (['confirmed','failed','pending_review'].includes(item.send_verification?.status) ? item.send_verification.status : ''),
+              send_verification_by: typeof item.send_verification_by === 'string' ? item.send_verification_by : (typeof item.send_verification?.by === 'string' ? item.send_verification.by : ''),
+              active_diagnostic_reason: typeof item.active_diagnostic_reason === 'string' ? item.active_diagnostic_reason.slice(0, 80) : '',
               streak_suspect_value: item.streak_suspect_value ?? null,
               streak_suspect_since: item.streak_suspect_since || null,
               streak_suspect_count: item.streak_suspect_count || 0,
@@ -3708,6 +3784,39 @@
           } finally {finishLedgerWrite(owner);}
         };
 
+        const confirmSent = async (row) => {
+          const current = savedLedgerContacts.value.find(item => item.entry_id === row.entry_id);
+          if (!current || !identityDecisionAllowed.value || !['unconfirmed','sending'].includes(current.last_status)) {
+            ElementPlus.ElMessage.warning('请先保存或放弃草稿，并等待当前任务结束后再确认。');
+            return false;
+          }
+          const requestEpoch = managementEpoch;
+          if (!confirm(`确认“${current.display_name}”的消息已经发出？这只更新台账，不会自动重发。`) || !managementCurrent(requestEpoch)) return false;
+          const owner = beginLedgerWrite('确认已经发出');
+          if (!owner) return false;
+          const draft = selectionFingerprint(draftSelection.value);
+          try {
+            const res = await api.post('/api/ledger/confirm-sent', {entry_id: current.entry_id, expected_ledger_version: ledgerVersion.value});
+            if (!managementCurrent(requestEpoch)) return false;
+            if (res.data?.ok !== true || !Array.isArray(res.data.entries) || typeof res.data.ledger_version !== 'string') {
+              ledgerReady.value = false;
+              throw new Error('发送确认结果尚未确认，请刷新好友台账');
+            }
+            const changed = selectionFingerprint(draftSelection.value) !== draft;
+            const edited = new Map(contacts.value.map(item => [contactKey(item), item.selected]));
+            applySavedLedger(normalizeLedgerContacts(res.data.entries), res.data.ledger_version, false);
+            if (changed) for (const item of contacts.value) if (edited.has(contactKey(item))) item.selected = edited.get(contactKey(item));
+            selectionFeedback.value = '已按人工核对标记为发出，不会自动重发。';
+            ElementPlus.ElMessage.success(selectionFeedback.value);
+            loadStatus();
+            return true;
+          } catch (error) {
+            if (!managementCurrent(requestEpoch)) return false;
+            ElementPlus.ElMessage.error(error.response?.data?.detail || error.message || '发送确认未完成，请刷新核对');
+            return false;
+          } finally { finishLedgerWrite(owner); }
+        };
+
         const saveLedgerSelection = async (options = {}) => {
           if (ledgerWriteBusy.value || savingLedger.value) return false;
           const clearConfirmed = options?.confirmClear === true;
@@ -3922,6 +4031,8 @@
           todaySummary,
           todayResultMessage,
           todayResultDetail,
+          streakWarningMessage,
+          activeDiagnosticMessage,
           backgroundPauseMessage,
           credentialDisplay,
           sessionCheckedLabel,
@@ -3956,9 +4067,12 @@
           identitySendBlocked,
           streakResetCandidates,
           reviewStreak,
+          confirmSent,
           streakDisplay,
           streakDetail,
           streakStale,
+          streakExpiring,
+          verificationLabel,
           streakBadge,
           filteredContacts,
           searchKeyword,

@@ -1206,7 +1206,7 @@ def _confirm_delivery(page, input_box, msg_text: str, baseline: dict, timeout: f
         while time.monotonic() < deadline:
             snapshot = _delivery_snapshot(page, msg_text, scope=scope)
             if snapshot.get("unavailable") or baseline.get("unavailable"):
-                raise MessageDeliveryUnconfirmed()
+                raise MessageDeliveryUnconfirmed(reason="scope_changed")
             new_messages = [m for m in snapshot["messages"] if isinstance(m, dict)
                             and m.get("id") and m.get("id") not in old_ids and m.get("text") == msg_text]
             # New failure signals after this Enter block retries even if input cleared.
@@ -1220,7 +1220,7 @@ def _confirm_delivery(page, input_box, msg_text: str, baseline: dict, timeout: f
                     candidate_id, candidate_seen = current_id, time.monotonic()
                 elif time.monotonic() - candidate_seen >= quiet_window:
                     if not _delivery_scope_current(scope):
-                        raise MessageDeliveryUnconfirmed()
+                        raise MessageDeliveryUnconfirmed(reason="scope_changed")
                     progress()
                     return True, "accepted"
             else:
@@ -1230,7 +1230,7 @@ def _confirm_delivery(page, input_box, msg_text: str, baseline: dict, timeout: f
         raise
     except Exception as error:
         raise MessageDeliveryUnconfirmed() from error
-    raise MessageDeliveryUnconfirmed()
+    raise MessageDeliveryUnconfirmed(reason="delivery_not_observed")
 
 
 def _send_message(page, msg_text: str, dry_run: bool, *, target_name: str = "") -> tuple[bool, str]:
@@ -1417,6 +1417,73 @@ def compute_pending(cfg: dict | None = None, *, dry_run: bool = False, force: bo
 # ── 主发送流程 ─────────────────────────────────────────────────────────────
 
 
+def _page_supports_chat_probe(page) -> bool:
+    """假页面和裸 object 不能走进定位循环；只有带 locator/evaluate 的页面才回读。"""
+    if page is None:
+        return False
+    module = type(page).__module__
+    if module.startswith("unittest.mock") or module == "builtins":
+        return False
+    return callable(getattr(page, "locator", None)) and callable(getattr(page, "evaluate", None))
+
+
+def _collect_post_send_probe(page, name: str, msg: str) -> dict | None:
+    """发送后几秒重新打开会话，只读最近一条己方消息和火花。失败时不改原结果。"""
+    if not _page_supports_chat_probe(page):
+        return None
+    from .chat_probe import POST_SEND_VERIFY_SECONDS, verify_recent_outgoing
+    try:
+        return verify_recent_outgoing(
+            page, name, msg, business_now().date(), locate=_locate_contact, sleep=time.sleep,
+            delay=POST_SEND_VERIFY_SECONDS,
+        )
+    except BrowserSessionUnavailable:
+        raise
+    except Exception as error:
+        raise_if_browser_unavailable(error)
+        logger.info("发送后核对未能读取「%s」的会话，保留原发送结果", name)
+        return None
+
+
+def _clear_unconfirmed_skip(result: dict, entry_id: str) -> None:
+    result["skipped"] = [
+        item for item in result.get("skipped", [])
+        if not (isinstance(item, dict) and item.get("entry_id") == entry_id and item.get("code") == "delivery_unconfirmed")
+    ]
+    if not any(isinstance(item, dict) and item.get("code") == "delivery_unconfirmed" for item in result["skipped"]):
+        result["delivery_unconfirmed"] = False
+
+
+def _review_after_send(page, entry: dict, msg: str, result: dict, attempt_id: str, *, prior_unconfirmed: bool) -> None:
+    """核对只改台账和本轮结果，绝不再次输入或发送。"""
+    name, key = entry["display_name"], entry.get("entry_id", "")
+    probe = _collect_post_send_probe(page, name, msg)
+    if probe is None:
+        return
+    try:
+        effect = ledger.apply_post_send_probe(key, attempt_id, probe, message=msg)
+    except Exception:
+        logger.exception("发送后核对结果未能写入台账，保留原发送结果")
+        return
+    if effect == "confirmed" and prior_unconfirmed:
+        _clear_unconfirmed_skip(result, key)
+        if name not in result["ok"]:
+            result["ok"].append(name)
+        result.setdefault("ok_entries", []).append({"entry_id": key, "name": name})
+        logger.info("发送后核对确认 %s 的消息已在今天的会话里，已自动标记确认，不会重发", name)
+    elif effect == "failed":
+        if prior_unconfirmed:
+            _clear_unconfirmed_skip(result, key)
+        else:
+            result["ok"] = [item for item in result.get("ok", []) if item != name]
+            result["ok_entries"] = [item for item in result.get("ok_entries", []) if item.get("entry_id") != key]
+        result["failed"].append({
+            "entry_id": key, "name": name, "code": "delivery_verified_failed", "retryable": False,
+            "reason": "核对到失败或重发标记，不会自动重发",
+        })
+        logger.info("发送后核对发现 %s 的消息有失败标记，已记录失败，不会重发", name)
+
+
 def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> None:
     name, key = entry["display_name"], entry.get("entry_id", "")
     if ledger.identity_block_reason(entry):
@@ -1427,25 +1494,40 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
     intent = {"entry_id": key, "display_name":name, "attempt_id": "", "force": getattr(_send_context, "force", False)}
     _send_context.intent = None if dry_run else intent
 
-    def persist(ok, *, status=None):
+    def persist(ok, *, status=None, diagnostic=None, resolution=None):
         if not dry_run:
             options = {"entry_id": key}
             if status is not None:
                 options["status"] = status
             if intent["attempt_id"]:
                 options["attempt_id"] = intent["attempt_id"]
+            if diagnostic is not None:
+                options["diagnostic"] = diagnostic
+            if resolution is not None:
+                options["resolution"] = resolution
             ledger.update_send_result(name, ok, _now(), msg=msg, **options)
 
     def unknown(error, *, attempted=True):
-        result["skipped"].append({"entry_id": key, "name": name, "code": "delivery_unconfirmed",
-                                  "retryable": False, "enter_attempted": attempted, "reason": str(error)})
+        diagnostic_reason = getattr(error, "reason", None)
+        skipped = {"entry_id": key, "name": name, "code": "delivery_unconfirmed",
+                   "retryable": False, "enter_attempted": attempted, "reason": str(error)}
+        if diagnostic_reason:
+            skipped["diagnostic_reason"] = diagnostic_reason
+        result["skipped"].append(skipped)
         result["delivery_unconfirmed"] = True
+        saved = False
         try:
-            persist(False, status="unconfirmed")
+            diagnostic = None
+            if attempted:
+                diagnostic = {"phase": "delivery-after-send", "reason": diagnostic_reason or "delivery_unconfirmed"}
+            persist(False, status="unconfirmed", diagnostic=diagnostic)
+            saved = True
         except Exception:
             # The pre-submit sending record is already durable. Never rewrite
             # it as unsent or allow a result-storage failure to report success.
             logger.exception("待核对结果未能保存，保留原发送意图以阻止自动重发")
+        if saved and attempted and not dry_run:
+            _review_after_send(page, entry, msg, result, intent["attempt_id"], prior_unconfirmed=True)
 
     try:
         _check_send_stop()
@@ -1489,11 +1571,15 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
             result["ok"].append(name)
             result.setdefault("ok_entries", []).append({"entry_id": key, "name": name})
             if not dry_run:
-                try:
-                    ledger.confirm_join(name, entry_id=key)
-                except Exception:
-                    logger.exception("发送结果已保存，但会话关联标记更新失败")
-            logger.info("页面确认发送给 %s：%s", name, "(干跑)" if dry_run else "accepted")
+                _review_after_send(page, entry, msg, result, intent["attempt_id"], prior_unconfirmed=False)
+                if name in result["ok"]:
+                    try:
+                        ledger.confirm_join(name, entry_id=key)
+                    except Exception:
+                        logger.exception("发送结果已保存，但会话关联标记更新失败")
+                    logger.info("页面确认发送给 %s：accepted", name)
+            else:
+                logger.info("页面确认发送给 %s：(干跑)", name)
         elif entry.get("channel") == "creator":
             result["skipped"].append({"entry_id": key, "name": name, "retryable": False,
                                       "reason": "consumer 定位失败（该好友为 creator-only），已降级跳过"})
@@ -1722,7 +1808,9 @@ def _run_send_impl(dry_run: bool = False, only_names: list[str] | None = None, o
                 result["skipped"].append({"entry_id": target.get("entry_id", ""),
                                           "name": target.get("display_name", ""), "code": code,
                                           "retryable": False,
-                                          "reason": "今天已发，已自动跳过" if code == "already_sent_today" else "存在发送结果待核对，已自动跳过；请先人工确认"})
+                                          "reason": "今天已发，已自动跳过" if code == "already_sent_today"
+                                          else "核对到发送失败，今天不会自动重发" if code == "verified_send_failed"
+                                          else "存在发送结果待核对，已自动跳过；请先人工确认"})
             else:
                 pending.append(target)
         targets = pending

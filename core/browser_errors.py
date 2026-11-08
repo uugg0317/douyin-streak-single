@@ -13,8 +13,10 @@ class BrowserSessionUnavailable(RuntimeError):
 class MessageDeliveryUnconfirmed(RuntimeError):
     code = "delivery_unconfirmed"
 
-    def __init__(self, enter_attempted: bool = True):
+    def __init__(self, enter_attempted: bool = True, *, reason: str | None = None):
         self.enter_attempted = bool(enter_attempted)
+        # scope_changed：发送后会话范围对不上。delivery_not_observed：等到超时仍无新证据。
+        self.reason = reason if reason in {"scope_changed", "delivery_not_observed"} else None
         message = ("已尝试发送，但结果尚未确认；请在抖音核对后再手动重试，本次不会自动补发该好友。"
                    if self.enter_attempted else
                    "未尝试发送：无法确认当前会话/输入区域；请核对页面后再手动重试，本次不会自动补发该好友。")

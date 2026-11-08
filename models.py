@@ -77,6 +77,12 @@ class IdentityDecisionBody(BaseModel):
     expected_ledger_version: str = Field(min_length=1,max_length=128)
 
 
+class ConfirmSentBody(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    entry_id: str = Field(min_length=32, max_length=32, pattern=r'^[0-9a-f]{32}$')
+    expected_ledger_version: str = Field(min_length=1, max_length=128)
+
+
 class StreakDecisionBody(BaseModel):
     model_config = ConfigDict(extra='forbid')
     entry_id: str = Field(min_length=32,max_length=32,pattern=r'^[0-9a-f]{32}$')
