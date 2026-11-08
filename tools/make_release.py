@@ -111,7 +111,7 @@ def _allowed_file(path: PurePosixPath, *, generated: bool = False) -> bool:
     if top == "desktop":
         return suffix in {".py", ".md", ".ico", ".png"}
     if top == "docs":
-        return suffix in {".md", ".txt"}
+        return suffix in {".md", ".txt"} or path.as_posix() == "docs/webhook-console-preview.html"
     if top == "extra":
         return suffix == ".example"
     return False

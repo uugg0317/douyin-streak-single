@@ -32,6 +32,8 @@ from routers import (
     pages as pages_router,
     qr_credentials as qr_credentials_router,
     run as run_router,
+    webhook as webhook_router,
+    assistant as assistant_router,
 )
 from tasks_service import _scheduled_harvest, _start_run, ensure_today_sent, restore_retry_plan
 from watchdog_service import _start_watchdog
@@ -96,6 +98,11 @@ async def lifespan(_app: FastAPI):
                     "可在网页“定时”页打开开关。")
     restore_retry_plan()
     try:
+        from assistant_inbox import start_poller
+        start_poller()
+    except Exception as e:
+        logger.warning("小号收件调度未启动: %s", e)
+    try:
         yield
     finally:
         # 尚未执行/仍在排队的启动检查停止启动新任务；不宣称取消已启动的发送线程。
@@ -106,6 +113,7 @@ async def lifespan(_app: FastAPI):
             for task in list(catch_up_tasks):
                 await task
             await asyncio.to_thread(qr_credentials_router.shutdown_qr_login)
+            await asyncio.to_thread(assistant_router.shutdown_assistant)
         finally:
             scheduler.shutdown()
             _clear_instance_metadata()
@@ -138,9 +146,11 @@ app.include_router(auth_router.router)
 app.include_router(contacts_ledger_router.router)
 app.include_router(config_router.router)
 app.include_router(email_router.router)
+app.include_router(webhook_router.router)
 app.include_router(run_router.router)
 app.include_router(credentials_router.router)
 app.include_router(qr_credentials_router.router)
+app.include_router(assistant_router.router)
 
 
 if __name__ == "__main__":
