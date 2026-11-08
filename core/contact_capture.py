@@ -48,7 +48,8 @@ EXTRACT_JS = r"""() => {
                     .filter(el => visible(el) && el.closest('.commonStreakstreakContainer') === badge);
                 if (texts.length !== 1 || icons.length !== 1) { uncertain = true; continue; }
                 text = (texts[0].textContent || '').trim();
-                const iconPath = (icons[0].getAttribute('src') || '').split('/flame_icon/')[1] || '';
+                const src = icons[0].getAttribute('src') || '';
+                const iconPath = src.split('/flame_icon/')[1] || ((src.match(/((?:[a-z_]+\/)?(?:gray_|normal_)[a-z_]+\.png)(?:[?#].*)?$/i) || [])[1] || '');
                 if (/^重燃中\s*[0-9]+\s*\/\s*[0-9]+$/.test(text) || /^[0-9]+\s*天后消失$/.test(text)) {
                     labels.push(text); continue;
                 }
@@ -168,6 +169,22 @@ def _indexed(rows):
     return indexed
 
 
+
+def _observation_strength(row):
+    """Rank a scan reading so an incomplete pair does not erase a better one."""
+    if not isinstance(row, dict):
+        return 0
+    if row.get('streak_status') == 'confirmed' and row.get('streak') is not None:
+        return 3
+    if row.get('streak_status') == 'none' and row.get('streak_none_evidence') is True:
+        return 3
+    if isinstance(row.get('streak_label'), str) and row['streak_label']:
+        return 2
+    if row.get('streak_status') == 'suspect':
+        return 1
+    return 0
+
+
 def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, progress=lambda:None, clock=None):
     """Measure this scan without shortening any DOM or pagination settling wait.
 
@@ -207,12 +224,22 @@ def scan_contacts(page, collected, *, extract_js=EXTRACT_JS, max_rounds=20, prog
         fresh = bool((first.keys() | second.keys()) - merged.keys())
         consistent = first.keys() == second.keys() and not pending
         for key in dict.fromkeys([*first, *second]):
-            value = dict(second.get(key) or first[key])
             a, b = first.get(key), second.get(key)
             fields = ('name','avatar','streak','streak_status','streak_source','streak_none_evidence','streak_label','streak_at_risk')
-            if a is None or b is None or any((avatar_key(a.get(field)) != avatar_key(b.get(field)) if field == 'avatar' else a.get(field) != b.get(field)) for field in fields):
+            if a is not None and b is not None and not any((avatar_key(a.get(field)) != avatar_key(b.get(field)) if field == 'avatar' else a.get(field) != b.get(field)) for field in fields):
+                value = dict(b)
+            elif a is not None and b is not None:
                 consistent = False
+                value = dict(b)
                 value.update(streak=None, streak_status='unknown', streak_source=None, streak_none_evidence=False, streak_label=None, streak_at_risk=False)
+            else:
+                # 虚拟列表滚动时，同一行可能只出现在两次读取的其中一次。
+                # 不要因此把已经稳定读到的火花天数抹成 unknown。
+                consistent = False
+                value = dict(b or a)
+                previous = merged.get(key)
+                if _observation_strength(previous) > _observation_strength(value):
+                    value = dict(previous)
             merged[key] = value
         if fresh:
             progress()

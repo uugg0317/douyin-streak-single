@@ -90,4 +90,21 @@ test('总览展示火花即将消失警告，且保留最后确认于作为无�
  assert.match(h.component.streakDetail({streak_status:'unknown',streak_confirmed_date:'2026-10-01',streak_unconfirmed_days:17,streak_may_be_stale:true}), /最后确认于 2026-10-01（17 天前）/);
  await h.close();
 });
+
+test('一键勾选只保留当前有火花的好友，并可只看有火花',async()=>{
+ const h=scope.makeFixture();await h.connect();
+ const rows=[
+  {entry_id:'spark',display_name:'有火花',streak_days:218,streak_status:'confirmed',observation_status:'seen',selected:false},
+  {entry_id:'gray',display_name:'灰色',streak_days:361,streak_status:'confirmed',streak_at_risk:true,observation_status:'seen',selected:false},
+  {entry_id:'extra',display_name:'无火花却勾选',streak_days:0,streak_status:'unknown',observation_status:'seen',selected:true},
+  {entry_id:'old',display_name:'历史重复',streak_days:215,streak_status:'unknown',observation_status:'not_observed',selected:true}];
+ h.handlers.set('/api/ledger',()=>({data:{entries:rows,ledger_version:'exact-select'}}));
+ await h.component.loadAll();
+ assert.equal(h.component.sparkFriendCount.value,2);
+ h.component.autoSelectSparkFriends();
+ assert.deepEqual(Array.from(h.component.contacts.value.filter(x=>x.selected),x=>x.entry_id),['spark','gray']);
+ h.component.showOnlySparkFriends.value=true;
+ assert.deepEqual(Array.from(h.component.filteredContacts.value,x=>x.entry_id),['spark','gray']);
+ await h.close();
+});
 (async()=>{let failed=0;for(const t of tests){try{await t.fn();console.log('PASS '+t.name);}catch(e){failed++;console.error(e.stack);}}console.log(JSON.stringify({passed:tests.length-failed,failed}));process.exitCode=failed?1:0;})();

@@ -19,7 +19,7 @@ test('普通旧候选不再阻止勾选有火花好友',async()=>{
  const h=await setup();const data=rows();data[1].rename_candidates[0].unresolved_send=false;
  h.handlers.set('/api/ledger',()=>({data:{entries:data,ledger_version:'v2'}}));await h.component.loadAll();
  h.component.autoSelectSparkFriends();assert.equal(h.component.contacts.value[1].selected,true);
- assert.equal(h.component.contacts.value[0].selected,true); // 保留原有勾选，不擅自清空历史选择。
+ assert.equal(h.component.contacts.value[0].selected,false); // 一键勾选只保留当前检测到火花的好友。
  assert(!h.calls.some(c=>c.url.includes('identity-decision')));await h.close();
 });
 test('历史发送未知仍受保护，且不再要求确认是否同一人',async()=>{

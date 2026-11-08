@@ -179,6 +179,7 @@ const app = createApp({
     let statusTimer = null;
     const searchKeyword = ref('');
     const showHistoricalContacts = ref(false);
+    const showOnlySparkFriends = ref(false);
     const historicalContactCount = computed(() => contacts.value.filter(row => row.observation_status === 'not_observed').length);
     const avatarErrors = ref(new Set());
     const avatarProxy = (url) => url ? `/api/avatar?url=${encodeURIComponent(url)}` : '';
@@ -478,7 +479,8 @@ const app = createApp({
       const kw = searchKeyword.value.trim().toLowerCase();
       // 仅改变展示顺序；原始联系人顺序、勾选及发送顺序不变。
       const rank = row => hasCurrentStreak(row) ? 0 : row.observation_status === 'not_observed' ? 2 : 1;
-      const visibleRows = contacts.value.filter(row => showHistoricalContacts.value || row.observation_status !== 'not_observed').sort((a,b) => rank(a) - rank(b));
+      let visibleRows = contacts.value.filter(row => showHistoricalContacts.value || row.observation_status !== 'not_observed').sort((a,b) => rank(a) - rank(b));
+      if (showOnlySparkFriends.value) visibleRows = visibleRows.filter(hasCurrentStreak);
       if (!kw) return visibleRows;
       return visibleRows.filter(c =>
         (c.nickname && c.nickname.toLowerCase().includes(kw)) ||
@@ -1394,12 +1396,12 @@ const app = createApp({
       selectionFeedback.value = '';
       let count = 0;
       contacts.value.forEach(c => {
-        if (hasCurrentStreak(c) && !identitySendBlocked(c)) {
-          c.selected = true;
-          count++;
-        }
+        const pick = hasCurrentStreak(c) && !identitySendBlocked(c);
+        c.selected = pick;
+        if (pick) count++;
       });
-      ElementPlus.ElMessage.success(`已自动勾选 ${count} 位火花好友，请点击“保存勾选配置”！`);
+      selectionFeedback.value = `已按当前火花勾选 ${count} 位好友（草稿）。请点击“保存勾选配置”后生效。`;
+      ElementPlus.ElMessage.success(selectionFeedback.value);
     };
 
     const clearSelectedFriends = () => {
@@ -2010,6 +2012,8 @@ const app = createApp({
       filteredContacts,
       searchKeyword,
       showHistoricalContacts,
+      showOnlySparkFriends,
+      hasCurrentStreak,
       historicalContactCount,
       logsContent,
       logsRefreshing,

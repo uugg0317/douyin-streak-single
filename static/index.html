@@ -2458,7 +2458,7 @@
               <div class="card-header">
                 <div>
                   <h3 class="card-title">好友与消息台账</h3>
-                  <p class="card-desc">自动同步抖音好友列表，一键勾选火花好友，保存后每日定时自动发送。</p>
+                  <p class="card-desc">自动同步抖音好友列表，一键勾选有火花的好友，保存后每日定时自动发送。</p>
                 </div>
                 <div class="mobile-action-grid" style="display: flex; gap: 8px; flex-wrap: wrap;">
                   <el-button type="primary" size="small" class="btn-action-primary" :loading="syncing" :disabled="ledgerWriteBusy" @click="syncContacts">
@@ -2466,7 +2466,7 @@
                   </el-button>
                   <el-button size="small" :disabled="ledgerWriteBusy" @click="refreshLedgerSelection">刷新已生效名单</el-button>
                   <el-button size="small" @click="autoSelectSparkFriends">
-                    一键勾选火花
+                    一键勾选有火花的好友
                   </el-button>
                   <el-button size="small" @click="clearSelectedFriends">
                     清空勾选
@@ -2521,17 +2521,19 @@
 
 
               <!-- 搜索过滤条 -->
-              <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+              <div style="margin-bottom: 12px;">
                 <el-input
                   v-model="searchKeyword"
                   placeholder="搜索好友昵称或火花天数..."
                   clearable
                   size="small"
-                  style="flex: 1; min-width: 200px;"
-                />
-                <el-checkbox v-if="historicalContactCount" v-model="showHistoricalContacts" size="small">显示历史记录（{{ historicalContactCount }}）</el-checkbox>
-                <div style="font-size: 12.5px; color: var(--text-muted); white-space: nowrap;">
-                  草稿勾选 <strong style="color: var(--text-main);">{{ selectedFriendCount }}</strong> 位好友{{ selectionDirty ? ' · 尚未保存' : '' }}
+                ></el-input>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px;">
+                  <el-checkbox v-if="historicalContactCount" v-model="showHistoricalContacts" size="small">显示历史记录（{{ historicalContactCount }}）</el-checkbox>
+                  <el-checkbox v-model="showOnlySparkFriends" size="small">只看有火花的好友（{{ sparkFriendCount }}）</el-checkbox>
+                  <div style="font-size: 12.5px; color: var(--text-muted); white-space: nowrap;">
+                    草稿勾选 <strong style="color: var(--text-main);">{{ selectedFriendCount }}</strong> 位好友{{ selectionDirty ? ' · 尚未保存' : '' }}
+                  </div>
                 </div>
               </div>
 
@@ -2902,9 +2904,9 @@
   <script src="/static/vendor/vue.global.prod.js"></script>
   <script src="/static/vendor/element-plus.full.min.js"></script>
   <script src="/static/vendor/axios.min.js"></script>
-  <script src="/static/qr-login.js?v=2.9-port1"></script>
+  <script src="/static/qr-login.js?v=2.9-port2"></script>
 
   <script data-console-module src="/static/console-results.js?v=2.9-modules1"></script>
-  <script data-console-module src="/static/console-app.js?v=2.9-port1"></script>
+  <script data-console-module src="/static/console-app.js?v=2.9-port2"></script>
 </body>
 </html>

@@ -86,6 +86,14 @@ class RealBadgeContractTests(unittest.TestCase):
         self.assertTrue(value['profile_pending'])
 
 
+    def test_icon_src_without_flame_icon_folder_still_reads_gray_number(self):
+        html = row('A', '361', 'normal/gray_normal.png').replace('/flame_icon/', '/')
+        value = self.read(html)[0]
+        self.assertEqual(value['streak'], 361)
+        self.assertEqual(value['streak_status'], 'confirmed')
+        self.assertTrue(value['streak_at_risk'])
+
+
 class SpecialBadgePersistenceTests(unittest.TestCase):
     def test_special_label_preserves_history_then_clears_on_normal_observation(self):
         entry={'streak_days':81,'streak_status':'confirmed'}

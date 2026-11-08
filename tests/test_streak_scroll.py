@@ -46,3 +46,13 @@ class ScrollTests(TestCase):
         collected=[]; result=A._scroll_and_extract(Page(frames),collected,max_rounds=5)
         self.assertEqual([x['name'] for x in collected],['A','B'])
         self.assertTrue(result['complete'])
+
+    def test_incomplete_pair_keeps_previous_confirmed_reading(self):
+        frames = [[row(value=12)], [row(value=12)], [row(value=12)], [row('B', value=5)]]
+        collected = []
+        result = A._scroll_and_extract(Page(frames), collected, max_rounds=2)
+        by_name = {item['name']: item for item in collected}
+        self.assertEqual(by_name['A']['streak'], 12)
+        self.assertEqual(by_name['A']['streak_status'], 'confirmed')
+        self.assertFalse(result['complete'])
+
