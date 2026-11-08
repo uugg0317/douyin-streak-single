@@ -46,7 +46,8 @@ def _today_summary() -> dict:
     return {"business_date": today.isoformat(), "accepted": len(accepted),
             "unconfirmed": len(unconfirmed), "pending": len(selected - unsafe - accepted - unconfirmed),
             "selected": len(selected), "includes_historical_unconfirmed": False,
-            "historical_unreviewed": len(historical)}
+            "historical_unreviewed": len(historical),
+            "streak_warnings": ledger.streak_expiry_warnings()}
 
 
 @router.get("/")
@@ -108,6 +109,7 @@ def api_status(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
         "stop_reason": rt.get("stop_reason") if stopping else None,
         "last_run": rt.get("last_run"),
         "today_summary": today_summary,
+        "active_send_diagnostics": ledger.active_send_diagnostics(),
         "pending_retry_entries": rt.get("pending_retry_entries") or [],
         "pending_retry_count": len(rt.get("pending_retry_entries") or []),
         "retry_status": rt.get("retry_status", "none"),

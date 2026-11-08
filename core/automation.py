@@ -1734,13 +1734,16 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
         _send_context.delivery_check = {"evidence": "unverified", "reason": "not_reached",
                                         "observed_outgoing_count": 0}
 
-    def persist(ok, *, status=None):
+    def persist(ok, *, status=None, diagnostic=None):
         if not dry_run:
             options = {"entry_id": key}
             if status is not None:
                 options["status"] = status
             if intent["attempt_id"]:
                 options["attempt_id"] = intent["attempt_id"]
+            if diagnostic:
+                options["diagnostic"] = {"reason": str(diagnostic)[:80], "phase": "delivery-after-send"}
+                options["resolution"] = "delivery_unconfirmed"
             ledger.update_send_result(name, ok, _now(), msg=msg, **options)
 
     def unknown(error, *, attempted=True):
@@ -1754,7 +1757,7 @@ def _send_consumer(page, entry: dict, msg: str, dry_run: bool, result: dict) -> 
             result["halt_batch"] = True
         logger.warning("发送给 %s 的结果待核对（诊断：%s）", name, diagnostic or type(error).__name__)
         try:
-            persist(False, status="unconfirmed")
+            persist(False, status="unconfirmed", diagnostic=diagnostic)
         except Exception:
             # The pre-submit sending record is already durable. Never rewrite
             # it as unsent or allow a result-storage failure to report success.
