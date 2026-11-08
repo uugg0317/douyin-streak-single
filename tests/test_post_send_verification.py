@@ -40,6 +40,8 @@ class ClassifyTests(TestCase):
         by_id = {item["id"]: item for item in chat_probe.LIVE_DOM_SELECTORS}
         self.assertEqual(by_id["message-list"]["selector"], ".messageMessageListlist")
         self.assertEqual(by_id["own-message-box"]["selector"], ".messageMessageBoxisFromMe")
+        self.assertEqual(by_id["message-box"]["selector"], ".messageMessageBoxmessageBox")
+        self.assertEqual(by_id["message-time"]["selector"], ".MessageBoxTimetimeLayout")
         self.assertEqual(by_id["message-emoji-title"]["role"], "primary")
         self.assertFalse(by_id["message-list"]["needs_live_verification"])
         self.assertEqual(by_id["legacy-message-list"]["role"], "fallback")
@@ -447,4 +449,39 @@ class SyntheticChatDomTests(TestCase):
         self.assertEqual(result["status"], "confirmed")
         self.assertEqual(result["streak"]["streak_label"], "6 天后消失")
         self.assertIsNone(result["streak"]["streak"])
+        self.assertNotIn("resend", result)
+
+    def test_time_divider_sits_outside_the_bubble_and_is_not_taken_from_yesterday(self):
+        result = self.read("""
+        <div class="conversationConversationItemcurConversation"><div class="conversationConversationItemtitle">合成好友</div></div>
+        <div class="RightPanelHeadertitle">合成好友</div>
+        <div class="messageMessageListlist" style="width:640px">
+          <div class="messageMessageBoxmessageBox messageMessageBoxlargeMargin">
+            <div class="MessageBoxTimetimeLayout">昨天 00:00</div>
+            <div class="messageMessageBoxselectableRow">
+              <div class="messageMessageBoxcontentBox messageMessageBoxisFromMe">
+                <span class="TextMessageTextemoji"><img title="[续火花吧]" alt=""></span>
+              </div>
+            </div>
+          </div>
+          <div class="messageMessageBoxmessageBox messageMessageBoxlargeMargin">
+            <div class="MessageBoxTimetimeLayout">00:00</div>
+            <div class="messageMessageBoxselectableRow">
+              <div class="messageMessageBoxcontentBox messageMessageBoxisFromMe">
+                <div class="TextMessageTextpureText">还有高手</div>
+              </div>
+            </div>
+          </div>
+          <div class="messageMessageBoxmessageBox messageMessageBoxlargeMargin">
+            <div class="messageMessageBoxselectableRow">
+              <div class="messageMessageBoxcontentBox messageMessageBoxisFromMe">
+                <span class="TextMessageTexttextInnerContent"><span class="TextMessageTextemoji" data-apm-action="emoji"><img title="[续火花吧]" alt=""></span></span>
+              </div>
+            </div>
+          </div>
+        </div>""")
+        self.assertEqual(result["status"], "confirmed")
+        self.assertEqual(result["reason"], "matched_today")
+        self.assertEqual(result["message_time"], "00:00")
+        self.assertEqual(result["message_text"], "[续火花吧]")
         self.assertNotIn("resend", result)

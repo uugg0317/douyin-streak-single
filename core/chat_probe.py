@@ -42,15 +42,17 @@ LIVE_DOM_SELECTORS = (
     _selector("message-list-wrapper", ".messageMessageListwrapper",
               "消息列表外层；列表类名缺失时回退到这里", role="primary", needs_live_verification=False, live_note=_VERIFIED),
     _selector("own-message-box", ".messageMessageBoxisFromMe",
-              "己方气泡最外层，时间和正文都在里面", role="primary", needs_live_verification=False, live_note=_VERIFIED),
+              "己方气泡。正文在里面，时间在外层 messageBox，不在这个气泡里", role="primary", needs_live_verification=False, live_note=_VERIFIED),
     _selector("own-isFromMe", "[class*='isFromMe']",
               "己方标记；没有最外层气泡类名时，取最内层", role="primary", needs_live_verification=False, live_note=_VERIFIED),
     _selector("message-plain-text", ".TextMessageTextpureText",
               "纯文本正文", role="primary", needs_live_verification=False, live_note=_VERIFIED),
     _selector("message-emoji-title", ".TextMessageTextemoji img[title]",
               "表情文案，例如 [续火花吧]；读 title，不读空的 alt", role="primary", needs_live_verification=False, live_note=_VERIFIED),
+    _selector("message-box", ".messageMessageBoxmessageBox",
+              "单条消息外层。时间在这一层，不在己方气泡里面", role="primary", needs_live_verification=False, live_note=_VERIFIED + "；复核对过，时间节点在气泡外"),
     _selector("message-time", ".MessageBoxTimetimeLayout",
-              "消息时间。00:00、11:04 按当天；昨天、前天按其他日期", role="primary", needs_live_verification=False, live_note=_VERIFIED + "；裸 HH:MM 按当天已在实页对照"),
+              "消息时间，位于 .messageMessageBoxmessageBox 内、己方气泡外。一组里只有第一条带时间，后面的沿用最近一条更早的时间；昨天的分隔不能套到今天", role="primary", needs_live_verification=False, live_note=_VERIFIED + "；裸 HH:MM 按当天已在实页对照"),
     _selector("streak-container", ".commonStreakstreakContainer",
               "会话标题旁的火花容器", role="primary", needs_live_verification=False, live_note=_VERIFIED),
     _selector("streak-text", ".commonStreaknormalText",
@@ -313,12 +315,37 @@ READ_CHAT_EVIDENCE_JS = r"""({target}) => {
     if (!values.length) push(el.textContent);
     return values;
   };
+  const timeNodeInside = root => {
+    if (!root) return null;
+    const direct = Array.from(root.querySelectorAll('.MessageBoxTimetimeLayout, time, [data-message-time-text]')).find(node => {
+      const owner = node.closest('.messageMessageBoxmessageBox');
+      return !owner || owner === root || root.classList.contains('messageMessageBoxisFromMe') || root.classList.contains('isFromMe');
+    });
+    return direct || null;
+  };
+  const ownTimeNode = el => {
+    const inside = el.querySelector('.MessageBoxTimetimeLayout, time, [data-message-time-text]');
+    if (inside) return inside;
+    const box = el.closest('.messageMessageBoxmessageBox');
+    return timeNodeInside(box);
+  };
+  const precedingTime = el => {
+    const list = el.closest('.messageMessageListlist') || el.closest('.messageMessageListwrapper') || el.closest('[data-message-list]');
+    if (!list) return null;
+    let chosen = null;
+    for (const node of list.querySelectorAll('.MessageBoxTimetimeLayout')) {
+      if (!visible(node)) continue;
+      if (node.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) chosen = node;
+      else break;
+    }
+    return chosen;
+  };
   const timeOf = el => {
-    const layout = el.querySelector('.MessageBoxTimetimeLayout');
-    const node = layout || el.querySelector('time, [data-message-time-text]');
+    const node = ownTimeNode(el) || precedingTime(el);
+    const layout = node && node.classList && node.classList.contains('MessageBoxTimetimeLayout');
     return {
       time_iso: el.getAttribute('data-message-time') || (node && node.getAttribute('datetime')) || '',
-      time_text: norm(layout ? layout.textContent : ((node && (node.getAttribute('data-message-time-text') || node.textContent)) || el.getAttribute('data-time-text') || '')),
+      time_text: norm(layout ? node.textContent : ((node && (node.getAttribute('data-message-time-text') || node.textContent)) || el.getAttribute('data-time-text') || '')),
     };
   };
   let messages = [];
