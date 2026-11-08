@@ -12,12 +12,13 @@ from fastapi import Response
 
 from auth_service import _check_auth
 from core import automation, ledger
-from core.runtime import load_harvest_last, load_runtime
+from core.runtime import load_harvest_last, load_runtime, note_send_resolved
 from models import (
     BatchDeleteBody,
     DeleteFriendBody,
     LedgerBody,
     SelectionBody,
+    ConfirmSentBody,
     IdentityDecisionBody,
     StreakDecisionBody,
 )
@@ -31,6 +32,28 @@ def _identity_call(func, *args, **kwargs):
 
 
 router = APIRouter()
+
+
+@router.post('/api/ledger/confirm-sent')
+def api_confirm_sent(body: ConfirmSentBody, token: str = Header(default='', alias='X-Auth-Token')) -> dict:
+    """人工确认这条消息已经发出。不打开发送，也不自动重发。"""
+    _check_auth(token)
+    if not app_common.run_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail='已有任务在运行，暂不能确认发送结果')
+    try:
+        result = ledger.confirm_sent_by_user(body.entry_id, body.expected_ledger_version)
+    except (ledger.IdentityConflict, ledger.LedgerVersionConflict) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=503, detail='台账保存失败，请刷新核对后再试') from None
+    finally:
+        app_common.run_lock.release()
+    entry = next((item for item in result.get('entries') or [] if item.get('entry_id') == body.entry_id), None)
+    try:
+        note_send_resolved(body.entry_id, (entry or {}).get('display_name') or '', 'confirmed')
+    except Exception:
+        app_common.logger.exception('发送确认已写入台账，但最近一轮结果未能同步')
+    return result
 
 
 @router.post('/api/ledger/streak-decision')
@@ -113,6 +136,9 @@ def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
             **{key:e.get(key) for key in ('streak_confirmed_date','streak_unconfirmed_days','streak_may_be_stale')},
             **{key:e.get(key) for key in ('streak_suspect_value','streak_suspect_since','streak_suspect_count','streak_reset_dismissed_until','streak_previous_days','streak_reset_accepted_at')},
             **{key:e.get(key) for key in ('observation_status','observation_at','last_capture_complete','identity_review_pending','rename_candidates','send_block_reason')},
+            "send_verification_status": (e.get("send_verification") or {}).get("status") if isinstance(e.get("send_verification"), dict) else None,
+            "send_verification_by": (e.get("send_verification") or {}).get("by") if isinstance(e.get("send_verification"), dict) else None,
+            "active_diagnostic_reason": next((item.get("reason") for item in reversed(e.get("send_diagnostics") or []) if isinstance(item, dict) and not item.get("superseded") and item.get("status") == "pending_review"), None),
             "selected": bool(e.get("selected", False)),
             # last_status 取真实结果，失败也会写 last_sent_at，不能据此判成功
             "last_status": e.get("last_status") or ("success" if e.get("last_sent_at") else "pending"),

@@ -568,10 +568,74 @@ def recover_interrupted_attempts() -> int:
     return recovered
 
 
+_DIAGNOSTIC_REASONS = {"scope_changed", "delivery_not_observed", "delivery_unconfirmed"}
+_MAX_SEND_DIAGNOSTICS = 20
+
+
+def _append_send_diagnostic(entry: dict, diagnostic: dict, when: str, attempt_id: str) -> None:
+    reason = str(diagnostic.get("reason") or "delivery_unconfirmed")
+    if reason not in _DIAGNOSTIC_REASONS:
+        reason = "delivery_unconfirmed"
+    if str(diagnostic.get("phase") or "delivery-after-send") != "delivery-after-send":
+        return
+    items = entry.setdefault("send_diagnostics", [])
+    if not isinstance(items, list):
+        items = []
+        entry["send_diagnostics"] = items
+    key = attempt_id or str((entry.get("send_attempt") or {}).get("attempt_id") or "")
+    business_date = business_now().date().isoformat()
+    if any(isinstance(item, dict) and not item.get("superseded") and item.get("attempt_id") == key
+           and item.get("reason") == reason and item.get("business_date") == business_date for item in items):
+        return
+    items.append({
+        "phase": "delivery-after-send",
+        "reason": reason,
+        "status": "pending_review",
+        "business_date": business_date,
+        "at": when,
+        "attempt_id": key,
+        "superseded": False,
+    })
+    if len(items) > _MAX_SEND_DIAGNOSTICS:
+        del items[:-_MAX_SEND_DIAGNOSTICS]
+
+
+def _supersede_send_diagnostics(entry: dict, *, by: str, when: str) -> int:
+    """确认发出后，同一好友尚未关闭的 delivery-after-send 待核对诊断改为已取代。"""
+    count = 0
+    items = entry.get("send_diagnostics") or []
+    if not isinstance(items, list):
+        return 0
+    for item in items:
+        if (not isinstance(item, dict) or item.get("superseded") or item.get("status") != "pending_review"
+                or item.get("phase") != "delivery-after-send"):
+            continue
+        item.update(superseded=True, superseded_by=by, superseded_at=when, status="superseded")
+        count += 1
+    return count
+
+
+def _note_verification(entry: dict, status: str, by: str, when: str, reason: str = "") -> None:
+    entry["send_verification"] = {
+        "status": status,
+        "by": by,
+        "at": when,
+        "reason": reason[:80],
+        "business_date": business_now().date().isoformat(),
+    }
+
+
+def _apply_streak_observation(entry: dict, observed) -> None:
+    if not isinstance(observed, dict) or observed.get("streak_status") not in {"confirmed", "unknown", "none"}:
+        return
+    observe_streak(entry, observed, business_now())
+
+
 @_serialized_mutation
 def update_send_result(display_name: str, ok: bool, at: str | None = None,
                        via_creator: bool = False, msg: str | None = None,
-                       *, entry_id: str = "", status: str | None = None, attempt_id: str = "") -> None:
+                       *, entry_id: str = "", status: str | None = None, attempt_id: str = "",
+                       diagnostic: dict | None = None, resolution: str | None = None) -> None:
     entries = load_ledger()
     target = resolve_entry(entries, entry_id=entry_id, display_name=display_name)
     if attempt_id and (target is None or (target.get("send_attempt") or {}).get("attempt_id") != attempt_id):
@@ -587,6 +651,8 @@ def update_send_result(display_name: str, ok: bool, at: str | None = None,
                       last_status=outcome)
         if outcome == "unconfirmed":
             target["last_unconfirmed_at"] = when
+            if isinstance(diagnostic, dict):
+                _append_send_diagnostic(target, diagnostic, when, attempt_id)
         if outcome == "success":
             target["last_sent_at"] = when
             if attempt_id:
@@ -595,7 +661,125 @@ def update_send_result(display_name: str, ok: bool, at: str | None = None,
                 target["last_msg"] = msg
             if not via_creator:
                 target["has_conversation"] = True
+            _supersede_send_diagnostics(target, by=resolution or "send_accepted", when=when)
+            if resolution:
+                _note_verification(target, "confirmed", resolution, when)
         _save(entries)
+
+
+@_serialized_mutation
+def apply_post_send_probe(entry_id: str, attempt_id: str, probe: dict, *, message: str | None = None) -> str:
+    """把只读核对结果写入台账。返回 confirmed / failed / unchanged。不会触发发送。"""
+    if not isinstance(probe, dict):
+        return "unchanged"
+    entries = load_ledger()
+    target = resolve_entry(entries, entry_id=entry_id)
+    if target is None:
+        return "unchanged"
+    _apply_streak_observation(target, probe.get("streak"))
+    status = probe.get("status")
+    reason = str(probe.get("reason") or "")
+    when = business_now().isoformat(timespec="seconds")
+    attempt = target.get("send_attempt") if isinstance(target.get("send_attempt"), dict) else {}
+    if attempt_id and attempt.get("attempt_id") not in {None, "", attempt_id}:
+        _save(entries)
+        return "unchanged"
+    if attempt_id and attempt.get("attempt_id") != attempt_id:
+        _save(entries)
+        return "unchanged"
+    current = target.get("last_status")
+    if status == "confirmed" and current in {"unconfirmed", "sending"}:
+        if attempt:
+            attempt.update(status="accepted", finished_at=when, resolution="post_send_verification")
+        target.update(last_status="success", last_ok=True, last_sent_at=when, last_attempt_at=when,
+                      last_unconfirmed_at=None, has_conversation=True)
+        if message:
+            target["last_msg"] = message
+        _note_verification(target, "confirmed", "post_send_verification", when, reason)
+        _supersede_send_diagnostics(target, by="post_send_verification", when=when)
+        _save(entries)
+        return "confirmed"
+    if status == "failed" and current in {"unconfirmed", "sending", "success"}:
+        if not attempt:
+            attempt = {"attempt_id": attempt_id or "verified", "entry_id": entry_id,
+                       "business_date": business_now().date().isoformat()}
+            target["send_attempt"] = attempt
+        attempt.update(status="failed_observed", finished_at=when, resolution="post_send_verification")
+        target.update(last_status="failed", last_ok=False, last_attempt_at=when, last_unconfirmed_at=None)
+        _note_verification(target, "failed", "post_send_verification", when, reason or "failure_mark")
+        _supersede_send_diagnostics(target, by="post_send_verification", when=when)
+        _save(entries)
+        return "failed"
+    if status == "pending_review" and current in {"unconfirmed", "sending"}:
+        _note_verification(target, "pending_review", "post_send_verification", when, reason)
+    elif status == "confirmed" and current == "success":
+        _note_verification(target, "confirmed", "post_send_verification", when, reason)
+        _supersede_send_diagnostics(target, by="post_send_verification", when=when)
+    _save(entries)
+    return "unchanged"
+
+
+@_serialized_mutation
+def confirm_sent_by_user(entry_id: str, expected_version: str) -> dict:
+    """人工确认消息已经发出。只改台账，不打开页面，也不自动重发。"""
+    snapshot = ledger_snapshot(expected_version)
+    entries = snapshot["entries"]
+    target = resolve_entry(entries, entry_id=entry_id)
+    if target is None:
+        raise IdentityConflict("好友不存在，请刷新后再确认")
+    attempt = target.get("send_attempt") if isinstance(target.get("send_attempt"), dict) else {}
+    pending = (target.get("last_status") in {"sending", "unconfirmed"}
+               or attempt.get("status") in {"sending", "unconfirmed"}
+               or any(isinstance(item, dict) and not item.get("superseded") and item.get("status") == "pending_review"
+                      for item in target.get("send_diagnostics") or []))
+    if not pending:
+        raise IdentityConflict("当前没有待核对的发送结果，不会重复标记为已发出")
+    when = business_now().isoformat(timespec="seconds")
+    if attempt.get("status") in {"sending", "unconfirmed"}:
+        attempt.update(status="accepted", finished_at=when, resolution="user_confirmed_sent")
+    target.update(last_status="success", last_ok=True, last_sent_at=when, last_attempt_at=when, last_unconfirmed_at=None)
+    target.setdefault("identity_history", []).append({"at": when, "action": "user_confirmed_sent"})
+    _note_verification(target, "confirmed", "user_confirmed_sent", when, "user_confirmed_sent")
+    _supersede_send_diagnostics(target, by="user_confirmed_sent", when=when)
+    _save(entries)
+    return {"ok": True, "action": "user_confirmed_sent", **ledger_snapshot()}
+
+
+def active_send_diagnostics() -> list[dict]:
+    rows = []
+    for entry in load_ledger():
+        for item in entry.get("send_diagnostics") or []:
+            if (not isinstance(item, dict) or item.get("superseded") or item.get("status") != "pending_review"
+                    or item.get("phase") != "delivery-after-send"):
+                continue
+            rows.append({
+                "entry_id": entry.get("entry_id"),
+                "display_name": entry.get("display_name") or "",
+                "phase": item.get("phase"),
+                "reason": item.get("reason"),
+                "status": "pending_review",
+                "business_date": item.get("business_date"),
+                "at": item.get("at"),
+            })
+    return rows
+
+
+def streak_expiry_warnings() -> list[dict]:
+    from .chat_probe import EXPIRING_WITHIN_DAYS, expiry_days
+    rows = []
+    for entry in load_ledger():
+        label = entry.get("streak_label")
+        days = expiry_days(label)
+        if days is None or days > EXPIRING_WITHIN_DAYS:
+            continue
+        rows.append({
+            "entry_id": entry.get("entry_id"),
+            "display_name": entry.get("display_name") or "",
+            "streak_label": str(label).strip(),
+            "expires_in_days": days,
+            "observed_at": entry.get("streak_seen_at"),
+        })
+    return rows
 
 
 @_serialized_mutation
