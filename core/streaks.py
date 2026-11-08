@@ -140,7 +140,8 @@ def observe_streak(entry: dict, observed: dict, now, *, sync_id: str | None = No
     if status == 'confirmed' and value is not None:
         _clear_reset_evidence(entry)
         entry.update(streak_days=value, streak_status='confirmed',
-                     streak_confirmed_at=entry['streak_seen_at'], streak_source=observed.get('streak_source'))
+                     streak_confirmed_at=entry['streak_seen_at'], streak_source=observed.get('streak_source'),
+                     streak_at_risk=observed.get('streak_at_risk') is True)
     elif status == 'none' and observed.get('streak_none_evidence') is True:
         _clear_reset_evidence(entry)
         entry.update(streak_days=0, streak_status='none',

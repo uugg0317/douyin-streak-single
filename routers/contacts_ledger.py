@@ -132,7 +132,7 @@ def api_ledger(token: str = Header(default="", alias="X-Auth-Token")) -> dict:
             "avatar": e.get("avatar") or "",
             "streak_days": spark,
             "spark_days": spark,
-            **{key:e.get(key) for key in ('streak_status','streak_source','streak_seen_at','streak_confirmed_at','streak_label')},
+            **{key:e.get(key) for key in ('streak_status','streak_source','streak_seen_at','streak_confirmed_at','streak_label','streak_at_risk')},
             **{key:e.get(key) for key in ('streak_confirmed_date','streak_unconfirmed_days','streak_may_be_stale')},
             **{key:e.get(key) for key in ('streak_suspect_value','streak_suspect_since','streak_suspect_count','streak_reset_dismissed_until','streak_previous_days','streak_reset_accepted_at')},
             **{key:e.get(key) for key in ('observation_status','observation_at','last_capture_complete','identity_review_pending','rename_candidates','send_block_reason')},

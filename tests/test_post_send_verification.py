@@ -37,9 +37,18 @@ def evidence(text="[续火花吧]", *, failed=False, explicit=True, right=False,
 class ClassifyTests(TestCase):
     def test_live_selector_inventory_is_explicit_and_send_free(self):
         source = (ROOT / "core" / "chat_probe.py").read_text(encoding="utf-8")
-        self.assertGreaterEqual(len(chat_probe.LIVE_DOM_SELECTORS), 8)
-        self.assertTrue(all(item["needs_live_verification"] is True for item in chat_probe.LIVE_DOM_SELECTORS))
-        for marker in ("isFromMe", "data-is-self", "commonStreakstreakContainer", "发送失败", "data-message-time"):
+        by_id = {item["id"]: item for item in chat_probe.LIVE_DOM_SELECTORS}
+        self.assertEqual(by_id["message-list"]["selector"], ".messageMessageListlist")
+        self.assertEqual(by_id["own-message-box"]["selector"], ".messageMessageBoxisFromMe")
+        self.assertEqual(by_id["message-emoji-title"]["role"], "primary")
+        self.assertFalse(by_id["message-list"]["needs_live_verification"])
+        self.assertEqual(by_id["legacy-message-list"]["role"], "fallback")
+        self.assertIn("不存在", by_id["conversation-active"]["live_note"])
+        self.assertTrue(by_id["failure-mark"]["needs_live_verification"])
+        self.assertIn("尚未证实", by_id["failure-mark"]["live_note"])
+        self.assertTrue(by_id["right-side-bubble"]["needs_live_verification"])
+        for marker in ("messageMessageBoxisFromMe", "TextMessageTextemoji", "MessageBoxTimetimeLayout",
+                       "data-is-self", "commonStreakstreakContainer", "发送失败", "gray_"):
             self.assertIn(marker, source)
         self.assertNotIn("keyboard", source)
         self.assertNotIn("_type_and_send", source)
@@ -97,8 +106,50 @@ class ClassifyTests(TestCase):
             "text": "128", "icon": "https://fixture.invalid/flame_icon/normal/normal_normal.png", "label": False})
         self.assertEqual(numeric["streak"], 128)
         self.assertEqual(numeric["streak_status"], "confirmed")
+        self.assertFalse(numeric["streak_at_risk"])
+        for icon in ("family/normal_family.png", "soulmate/normal_soulmate.png", "mate/normal_mate.png"):
+            colored = chat_probe.interpret_streak_badge({"text": "20", "icon": "https://fixture.invalid/flame_icon/" + icon, "label": False})
+            self.assertEqual(colored["streak_status"], "confirmed")
+            self.assertFalse(colored["streak_at_risk"])
+        gray = chat_probe.interpret_streak_badge({
+            "text": "361", "icon": "https://fixture.invalid/flame_icon/normal/gray_normal.png", "label": False})
+        self.assertEqual(gray["streak"], 361)
+        self.assertEqual(gray["streak_status"], "confirmed")
+        self.assertTrue(gray["streak_at_risk"])
         self.assertIsNone(chat_probe.interpret_streak_badge({
-            "text": "128", "icon": "https://fixture.invalid/flame_icon/mate/gray_mate.png", "label": False}))
+            "text": "128", "icon": "https://fixture.invalid/flame_icon/mate/unknown_mate.png", "label": False}))
+
+    def test_later_own_messages_do_not_hide_todays_streak_sticker(self):
+        raw = evidence(time_text="00:00")
+        raw["messages"] = [
+            {"explicit": True, "text": "[续火花吧]", "texts": ["[续火花吧]"], "failed": False, "time_text": "00:00"},
+            {"explicit": True, "text": "还有高手", "texts": ["还有高手"], "failed": False, "time_text": "11:04"},
+            {"explicit": True, "text": "", "texts": ["分享"], "failed": False, "time_text": "11:04"},
+        ]
+        result = chat_probe.classify_chat_evidence(raw, "[续火花吧]", TODAY, "合成好友")
+        self.assertEqual(result["status"], "confirmed")
+        self.assertEqual(result["reason"], "matched_today")
+        self.assertEqual(result["message_time"], "00:00")
+        self.assertNotIn("resend", result)
+        yesterday = evidence(time_text="昨天 23:12")
+        yesterday["messages"] = [
+            {"explicit": True, "text": "[续火花吧]", "texts": ["[续火花吧]"], "failed": False, "time_text": "昨天 23:12"},
+            {"explicit": True, "text": "还有高手", "texts": ["还有高手"], "failed": False, "time_text": "11:04"},
+        ]
+        missed = chat_probe.classify_chat_evidence(yesterday, "[续火花吧]", TODAY, "合成好友")
+        self.assertEqual(missed["status"], "pending_review")
+        self.assertEqual(missed["reason"], "time_not_today")
+        day_before = chat_probe.classify_chat_evidence(
+            evidence(time_text="前天"), "[续火花吧]", TODAY, "合成好友")
+        self.assertEqual(day_before["reason"], "time_not_today")
+        marked = evidence(time_text="00:00")
+        marked["messages"] = [
+            {"explicit": True, "text": "[续火花吧]", "texts": ["[续火花吧]"], "failed": True, "time_text": "00:00"},
+            {"explicit": True, "text": "还有高手", "texts": ["还有高手"], "failed": False, "time_text": "11:04"},
+        ]
+        failed = chat_probe.classify_chat_evidence(marked, "[续火花吧]", TODAY, "合成好友")
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["reason"], "failure_mark")
 
 
 class ProbeFlowTests(TestCase):
@@ -343,3 +394,57 @@ class SyntheticChatDomTests(TestCase):
         </section>""")
         self.assertEqual(result["status"], "pending_review")
         self.assertNotEqual(result["status"], "confirmed")
+
+    def test_real_douyin_classes_match_todays_sticker_among_later_messages(self):
+        result = self.read("""
+        <div class="conversationConversationItemcurConversation"><div class="conversationConversationItemtitle">合成好友</div></div>
+        <div class="RightPanelHeadertitle">合成好友</div>
+        <div class="RightPanelHeaderuser">
+          <div class="commonStreakstreakContainer">
+            <img class="commonStreakicon" alt="" src="https://fixture.invalid/flame_icon/normal/gray_normal.png">
+            <div class="commonStreaknormalText">361</div>
+          </div>
+        </div>
+        <div class="messageMessageListwrapper">
+          <div class="messageMessageListlist" style="width:640px">
+            <div class="messageMessageBoxisFromMe" style="width:180px">
+              <span class="TextMessageTextemoji"><img title="[续火花吧]" alt=""></span>
+              <div class="MessageBoxTimetimeLayout">00:00</div>
+            </div>
+            <div class="messageMessageBoxisFromMe MessageItemTextisFromMe" style="width:180px">
+              <div class="TextMessageTextpureText">还有高手</div>
+              <div class="MessageBoxTimetimeLayout">11:04</div>
+            </div>
+          </div>
+        </div>
+        <div class="messageMessageListlist" style="display:none">
+          <div class="messageMessageBoxisFromMe"><img title="[续火花吧]" alt=""><div class="MessageBoxTimetimeLayout">昨天 23:12</div></div>
+        </div>""")
+        self.assertEqual(result["status"], "confirmed")
+        self.assertEqual(result["reason"], "matched_today")
+        self.assertEqual(result["message_time"], "00:00")
+        self.assertEqual(result["message_text"], "[续火花吧]")
+        self.assertEqual(result["streak"]["streak"], 361)
+        self.assertTrue(result["streak"]["streak_at_risk"])
+        self.assertNotIn("resend", result)
+
+    def test_expiry_label_stays_a_label_when_the_icon_is_gray(self):
+        result = self.read("""
+        <div class="conversationConversationItemcurConversation"><div class="conversationConversationItemtitle">合成好友</div></div>
+        <div class="RightPanelHeadertitle">合成好友</div>
+        <div class="RightPanelHeaderuser">
+          <div class="commonStreakstreakContainer">
+            <img class="commonStreakicon" alt="" src="https://fixture.invalid/flame_icon/normal/gray_normal.png">
+            <div class="commonStreaknormalText commonStreaklabelText">6 天后消失</div>
+          </div>
+        </div>
+        <div class="messageMessageListlist" style="width:640px">
+          <div class="messageMessageBoxisFromMe">
+            <span class="TextMessageTextemoji"><img title="[续火花吧]" alt=""></span>
+            <div class="MessageBoxTimetimeLayout">00:00</div>
+          </div>
+        </div>""")
+        self.assertEqual(result["status"], "confirmed")
+        self.assertEqual(result["streak"]["streak_label"], "6 天后消失")
+        self.assertIsNone(result["streak"]["streak"])
+        self.assertNotIn("resend", result)

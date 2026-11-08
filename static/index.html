@@ -2706,7 +2706,7 @@
           if (row.streak_status === 'suspect') return '读数待核对' + history;
           if (row.streak_status === 'reset_pending') return `可能已重新开始（历史 ${days} 天 → 新读数 ${row.streak_suspect_value} 天，待确认）`;
           if (row.streak_status === 'none') return '已确认无火花';
-          return days > 0 ? `🔥 ${days} 天` : '尚无确认火花记录';
+          return days > 0 ? (`🔥 ${days} 天` + (row.streak_at_risk === true ? ' · 灰色' : '')) : '尚无确认火花记录';
         };
         const streakAge = row => {
           let day=row.streak_confirmed_date, days=row.streak_unconfirmed_days;
@@ -2745,7 +2745,7 @@
           const age = streakAge(row);
           const observed = formatObserved(row.streak_seen_at || row.streak_confirmed_at);
           const stale = observationStale(row);
-          const observedLabel = observed ? ((stale ? '缓存读数 · ' : '') + '观察于 ' + observed) : age.label;
+          const observedLabel = observed ? ((row.streak_at_risk === true ? '灰色火花 · ' : '') + (stale ? '缓存读数 · ' : '') + '观察于 ' + observed) : age.label;
           if (streakExpiring(row)) return `火花即将消失：${row.streak_label} · ${observedLabel}`;
           if (stale && observed) return `${observedLabel} · ${age.label}`;
           return observed ? observedLabel : age.label;
@@ -2950,6 +2950,7 @@
               streak_days: Number(item.streak_days || item.spark_days || 0),
               streak_status: item.streak_status || null,
               streak_label: item.streak_label || null,
+              streak_at_risk: item.streak_at_risk === true,
               streak_source: item.streak_source || null,
               streak_seen_at: item.streak_seen_at || null,
               streak_confirmed_at: item.streak_confirmed_at || null,
