@@ -4,7 +4,7 @@ const scope=vm.createContext({require,__dirname,console,URL,URLSearchParams,Resp
 vm.runInContext(baseline.slice(0,baseline.indexOf('const forbidden='))+';globalThis.r15Fixture=fixture;globalThis.r15Flush=flush;',scope);
 const fixture=scope.r15Fixture,flush=scope.r15Flush;
 const defer=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
-const readPaths=['/api/status','/api/config','/api/ledger','/api/logs','/api/email-config'];
+const readPaths=['/api/status','/api/config','/api/ledger','/api/logs','/api/email-config','/api/webhook','/api/assistant/status'];
 const tests=[];function test(name,fn){tests.push({name,fn});}
 test('反序的旧状态成功响应不能覆盖较新running=true',async()=>{const h=fixture();await h.connect();const old=defer();let n=0;h.handlers.set('/api/status',()=>++n===1?old.promise:{data:{running:true}});const waiting=h.component.loadStatus();await flush();await h.component.loadStatus();old.resolve({data:{running:false}});await waiting;assert.equal(h.component.status.running,true);assert.equal(h.component.status.status_connected,true);await h.close();});
 test('旧状态失败不能把较新成功状态降为失联',async()=>{const h=fixture();await h.connect();const old=defer();let n=0;h.handlers.set('/api/status',()=>++n===1?old.promise:{data:{running:true}});const waiting=h.component.loadStatus();await flush();await h.component.loadStatus();old.reject(Error('synthetic stale failure'));await waiting;assert.equal(h.component.status.status_connected,true);assert.equal(h.component.status.running,true);await h.close();});

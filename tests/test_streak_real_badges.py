@@ -42,9 +42,19 @@ class RealBadgeContractTests(unittest.TestCase):
         self.assertEqual([x['streak_label'] for x in actual],['重燃中 2/3','1 天后消失'])
         self.assertTrue(all(x['streak'] is None and x['streak_status']=='unknown' for x in actual))
 
-    def test_gray_unknown_or_missing_icon_is_not_numeric_evidence(self):
-        for icon in ['mate/gray_mate.png','unrecognized.png']:
-            self.assertEqual(self.read(row('A','81',icon))[0]['streak_status'],'unknown')
+    def test_gray_numeric_icon_is_confirmed_and_marked_at_risk(self):
+        for icon in ['normal/gray_normal.png', 'mate/gray_mate.png']:
+            value = self.read(row('A', '81', icon))[0]
+            self.assertEqual(value['streak'], 81)
+            self.assertEqual(value['streak_status'], 'confirmed')
+            self.assertTrue(value['streak_at_risk'])
+        colored = self.read(row('A', '81'))[0]
+        self.assertEqual(colored['streak'], 81)
+        self.assertEqual(colored['streak_status'], 'confirmed')
+        self.assertFalse(colored.get('streak_at_risk'))
+
+    def test_unknown_or_missing_icon_is_not_numeric_evidence(self):
+        self.assertEqual(self.read(row('A','81','unrecognized.png'))[0]['streak_status'],'unknown')
         html=row('A','81').replace('class="commonStreakicon"','class="other-icon"')
         self.assertEqual(self.read(html)[0]['streak_status'],'unknown')
 
@@ -88,3 +98,13 @@ class SpecialBadgePersistenceTests(unittest.TestCase):
         self.assertIsNone(entry['streak_label'])
         observe_streak(entry,{'streak_status':'unknown','streak_label':'任意私信内容'},now)
         self.assertIsNone(entry['streak_label'])
+
+    def test_confirmed_gray_observation_sets_at_risk_and_none_clears_it(self):
+        entry={}
+        now=datetime(2026,11,8,tzinfo=timezone.utc)
+        observe_streak(entry,{'streak_status':'confirmed','streak':361,'streak_source':'class','streak_at_risk':True},now)
+        self.assertEqual(entry['streak_days'],361)
+        self.assertTrue(entry['streak_at_risk'])
+        observe_streak(entry,{'streak_status':'none','streak_none_evidence':True,'streak_source':'class'},now)
+        self.assertEqual(entry['streak_days'],0)
+        self.assertFalse(entry['streak_at_risk'])
