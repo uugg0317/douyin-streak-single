@@ -17,7 +17,7 @@ from .config import DATA_DIR, atomic_write_text
 from .restore_guard import marker_active
 from .send_day import business_now, daily_skip_code, open_intent
 from .streaks import parse_streak, observe_streak, apply_reset_decision, confirmation_age, expiry_days, EXPIRING_WITHIN_DAYS
-from .contact_identity import identity_block_reason, mark_observations, unresolved_send, avatar_key
+from .contact_identity import identity_block_reason, mark_observations, carry_selection_to_reidentified, unresolved_send, avatar_key
 
 LEDGER_PATH = DATA_DIR / "ledger.json"
 LEDGER_BAK_PATH = DATA_DIR / "ledger.json.bak"
@@ -347,6 +347,7 @@ def merge_consumer_contacts(contacts: list[dict], *, capture: dict | None = None
         seen.add(target['entry_id'])
     if capture is not None:
         mark_observations(entries, seen, new_ids, capture, business_now())
+        carry_selection_to_reidentified(entries, new_ids)
     _mark_ambiguity(entries)
     if added or updated or capture is not None:
         _save(entries)

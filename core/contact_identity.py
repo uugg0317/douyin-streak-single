@@ -88,3 +88,36 @@ def mark_observations(entries, seen, new_ids, capture, now):
                 'rejected_send':rejected_send(old)}
         entry['rename_candidates'] = list(candidates.values())
         entry['identity_review_pending'] = bool(candidates)
+
+
+def carry_selection_to_reidentified(entries, new_ids):
+    """Copy selection onto a newly observed row that continues a selected friend.
+
+    Avatar or display-name changes create a new consumer_key and a new row.
+    The previous selected row is marked not_observed and cannot be sent, so
+    the live row must inherit selection. Old rows keep their own selected
+    flag; this never clears a checkbox. A renamed contact that only shares
+    an avatar, or a new contact with no shared name, does not inherit.
+    """
+    by_id = {entry.get('entry_id'): entry for entry in entries}
+    continuity = {'same_name'}
+    for entry in entries:
+        if entry.get('entry_id') not in new_ids or entry.get('selected'):
+            continue
+        orders = []
+        inherited = False
+        for candidate in entry.get('rename_candidates') or []:
+            old = by_id.get(candidate.get('old_entry_id'))
+            if not old or not old.get('selected'):
+                continue
+            evidence = set(candidate.get('evidence') or [])
+            if not (evidence & continuity):
+                continue
+            inherited = True
+            order = old.get('selected_order')
+            if isinstance(order, (int, float)):
+                orders.append(order)
+        if inherited:
+            entry['selected'] = True
+            if orders:
+                entry['selected_order'] = min(orders)

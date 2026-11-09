@@ -382,6 +382,8 @@ const app = createApp({
     const streakResetCandidates = computed(() => savedLedgerContacts.value.filter(row=>['reset_pending','correction_pending'].includes(row.streak_status)));
     const sendReviewCandidates = computed(() => savedLedgerContacts.value.filter(row=>row.send_review_status));
     const identitySendBlocked = row => row.identity_ambiguous || !!row.send_block_reason || row.observation_status === 'not_observed' || row.rename_candidates?.some(pair=>pair.unresolved_send);
+    // Same-day related_sent_today still blocks sending, but the friend must stay selectable for later days.
+    const identityListBlocked = row => row.identity_ambiguous || row.observation_status === 'not_observed' || (row.send_block_reason && row.send_block_reason !== 'related_sent_today') || row.rename_candidates?.some(pair=>pair.unresolved_send);
     const identityDescription = row => {
       if (row.send_block_reason === 'related_send_unconfirmed' || row.rename_candidates?.some(pair=>pair.unresolved_send)) return '历史发送结果待核对，暂不重复发送。';
       if (row.send_block_reason === 'related_sent_today') return '关联历史今天已发送，今日不重复发送。';
@@ -1385,7 +1387,7 @@ const app = createApp({
       return name;
     };
     const toggleContactSelection = row => {
-      if (identitySendBlocked(row) && !row.selected) { ElementPlus.ElMessage.warning('会话重名、本次未采集到或存在历史发送保护，暂不能勾选。'); return false; }
+      if (identityListBlocked(row) && !row.selected) { ElementPlus.ElMessage.warning('会话重名、本次未采集到或存在历史发送保护，暂不能勾选。'); return false; }
       if (!row.entry_id) { try { uniqueLegacyName(row); } catch (e) { ElementPlus.ElMessage.warning(e.message); return false; } }
       row.selected = !row.selected;
       selectionFeedback.value = '';
@@ -1396,7 +1398,7 @@ const app = createApp({
       selectionFeedback.value = '';
       let count = 0;
       contacts.value.forEach(c => {
-        const pick = hasCurrentStreak(c) && !identitySendBlocked(c);
+        const pick = hasCurrentStreak(c) && !identityListBlocked(c);
         c.selected = pick;
         if (pick) count++;
       });

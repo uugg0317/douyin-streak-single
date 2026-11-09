@@ -28,4 +28,19 @@ test('历史发送未知仍受保护，且不再要求确认是否同一人',asy
  assert(!h.component.identityDescription(h.component.contacts.value[1]).includes('身份'));
  await h.close();
 });
+test('当天关联已发送只阻止再发，一键勾选仍会勾上当前火花行且不发明选择',async()=>{
+ const h=await setup();
+ const data=rows();
+ data[1].send_block_reason='related_sent_today';
+ data[1].rename_candidates[0].unresolved_send=false;
+ data[1].rename_candidates[0].evidence=['same_name'];
+ data[1].rename_candidates[0].protected_day='2026-11-08';
+ data[1].display_name='秋亦';data[0].display_name='秋亦';
+ h.handlers.set('/api/ledger',()=>({data:{entries:data,ledger_version:'v3'}}));await h.component.loadAll();
+ h.component.autoSelectSparkFriends();
+ assert.equal(h.component.contacts.value[1].selected,true);
+ assert.equal(h.component.contacts.value[0].selected,false);
+ assert.equal(h.component.toggleContactSelection({...h.component.contacts.value[1],selected:false}),true);
+ await h.close();
+});
 (async()=>{let failed=0;for(const t of tests){try{await t.fn();console.log('PASS '+t.name);}catch(e){failed++;console.error(e.stack);}}console.log(JSON.stringify({passed:tests.length-failed,failed}));process.exitCode=failed?1:0;})();
