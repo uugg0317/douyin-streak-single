@@ -13,6 +13,7 @@ from core import automation
 from core.runtime import load_runtime, update_runtime
 from core.send_day import business_now
 from email_service import _render_template, _send_email, load_email_config
+from webhook_service import notify_event
 
 # 每天体检时刻（HH:MM）；默认 12:30，距 0 点发送约 11.5 小时，便于在面板重新扫码
 SESSION_CHECK_TIME = os.environ.get("SESSION_CHECK_TIME", "12:30").strip()
@@ -199,14 +200,43 @@ def _run_session_check_locked() -> None:
         problems.append("关键 Cookie 临期：" + ci.get("details", ""))
 
     if problems:
+        reason = "；".join(problems)
         try:
-            _send_warning("；".join(problems), health)
+            _send_warning(reason, health)
         except Exception as e:
             logger.warning("登录态预警邮件发送失败：%s", e)
+        _notify_session_webhook(reason, health)
     else:
         extra = f"（{ci.get('details', '')}）" if ci.get("details") else ""
         logger.info("登录态体检正常%s", extra)
         update_runtime(session_warn_date="")  # 恢复健康：清除当日已发标记
+
+
+def _notify_session_webhook(reason: str, health: dict | None) -> None:
+    """体检发现登录态问题时通知 webhook，不依赖邮件是否发出。"""
+    try:
+        ci = (health or {}).get("cookie") or {}
+        serious = (
+            not (health or {}).get("logged_in")
+            or not ci.get("has_state")
+            or ci.get("expired")
+            or (ci.get("has_state") and not ci.get("has_session"))
+        )
+        notify_event("credential_invalid" if serious else "session_warn", {
+            "summary": (reason or "登录态需要处理")[:160],
+            "details": {
+                "reason": (reason or "")[:400],
+                "logged_in": None if health is None else health.get("logged_in"),
+                "has_state": ci.get("has_state"),
+                "has_session": ci.get("has_session"),
+                "expired": bool(ci.get("expired")),
+                "expiring_soon": bool(ci.get("expiring_soon")),
+                "min_days": ci.get("min_days"),
+                "status_text": _cookie_summary(health),
+            },
+        })
+    except Exception:
+        logger.warning("登录态 webhook 通知失败", exc_info=True)
 
 
 def notify_after_run(result: dict) -> None:

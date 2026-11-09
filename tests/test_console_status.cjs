@@ -6,16 +6,19 @@ function mount() {
   let component, response = {}, ledgerResponse = {entries:[]}, failure = false;
   const backgroundPauses = [], posted = [];
   const hooks = [], timers = new Map(); let timerId = 0;
-  const api = {async post(url,data) {assert.equal(url,'/api/run');posted.push({url,data});return {data:{ok:true}};},interceptors:{response:{use(){}}}, async get(url) {
+  let webhookResponse = {enabled:false, debounce_seconds:600, deliveries:[]};
+  const api = {async post(url,data) {posted.push({url,data}); if (url === '/api/webhook/test') return {data:{ok:true, enabled:true, debounce_seconds:600, deliveries:[{time:'2026-11-07T12:01:00+08:00', event:'test_ping', result:'ok'}]}}; assert.equal(url,'/api/run'); return {data:{ok:true}};},interceptors:{response:{use(){}}}, async get(url) {
     if (url === '/api/status') {if (failure) throw Error('offline'); return {data:response};}
     if (url === '/api/ledger') return {data:ledgerResponse};
+    if (url === '/api/webhook') return {data:webhookResponse};
+    if (url === '/api/assistant/status') return {data:{enabled:false, allowlist:[], recent:[]}};
     assert(['/api/config','/api/logs','/api/email-config'].includes(url)); return {data:{}};
   }};
   const Vue = {ref:value=>({value}), reactive:value=>value, computed:fn=>({get value(){return fn();}}), watch(){}, nextTick:()=>Promise.resolve(), onMounted(){}, onUnmounted:fn=>hooks.push(fn), onBeforeUnmount:fn=>hooks.push(fn), createApp(options){component=options.setup();return {use(){return this;},mount(){}};}};
   const window = {innerWidth:1280,location:{origin:'http://127.0.0.1:8000',href:'http://127.0.0.1:8000/',search:'',hash:''},history:{replaceState(){}},matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}}),addEventListener(){},removeEventListener(){}};
   window.SparkSilkBackground={getState:()=>({enabled:true,available:true,reducedMotion:false,running:true}),setInputPaused:value=>backgroundPauses.push(value)};
-  vm.runInNewContext(script,{Vue,window,document:{getElementById:()=>({style:{}}),querySelector:()=>null},ElementPlus:{},axios:{create:()=>api},URL,URLSearchParams,console:{error(){},log(){}},localStorage:{removeItem(){},getItem(){return null}},setTimeout(){return 1;},clearTimeout(){},setInterval(fn){const id=++timerId;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);}}, {filename:'actual-console-v28.js'});
-  return {c:component,backgroundPauses,posted,setResponse(value){response=value;},setLedger(value){ledgerResponse=value;},fail(){failure=true;},cleanup(){hooks.forEach(fn=>fn());}};
+  vm.runInNewContext(script,{Vue,window,document:{getElementById:()=>({style:{}}),querySelector:()=>null},ElementPlus:{ElMessage:{warning(){},success(){},info(){},error(){}}},axios:{create:()=>api},URL,URLSearchParams,console:{error(){},log(){}},localStorage:{removeItem(){},getItem(){return null}},setTimeout(){return 1;},clearTimeout(){},setInterval(fn){const id=++timerId;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);}}, {filename:'actual-console-v28.js'});
+  return {c:component,backgroundPauses,posted,setResponse(value){response=value;},setLedger(value){ledgerResponse=value;},setWebhook(value){webhookResponse=value;},fail(){failure=true;},cleanup(){hooks.forEach(fn=>fn());}};
 }
 const tests = [];
 async function test(name, fn) {await fn();tests.push(name);}
@@ -168,5 +171,32 @@ async function test(name, fn) {await fn();tests.push(name);}
   assert.equal(h.c.lastRunDetails.value.length,4);const text=JSON.stringify(h.c.lastRunDetails.value);assert.match(text,/今天已发送/);assert.match(text,/不会自动重发/);assert.match(text,/未发送.*不能据此确认真实投递/);assert(!text.includes('private-secret'));assert.equal(h.c.resultDetailsOpen.value,false);
   assert(html.includes('aria-controls="run-result-list"'));h.cleanup();
  });
+ await test('Webhook panel shows enabled or unconfigured and never renders the URL or key', async () => {
+  assert(html.includes('发送测试 Webhook'));
+  assert(html.includes('{{ webhookStatusLabel }}'));
+  assert(script.includes("webhook.enabled ? '已启用' : '未配置'"));
+  assert(!html.includes('GROK_BOT_WEBHOOK_URL'));
+  assert(!html.includes('GROK_BOT_WEBHOOK_KEY'));
+  assert(!/webhook\.(url|key)/.test(html));
+  const h = mount();
+  assert.equal(h.c.webhookStatusLabel.value, '未配置');
+  assert.equal(await h.c.sendTestWebhook(), false);
+  h.c.applyWebhookStatus({enabled:true, url:'https://secret.example/hook', key:'sekret', debounce_seconds:600, deliveries:[
+    {time:'2026-11-07T12:00:00+08:00', event:'send_complete', result:'ok', url:'https://secret.example/hook'},
+    {time:'http://evil.example/x', event:'send_complete', result:'ok'},
+    {time:'2026-11-07T12:01:00+08:00', event:'not a safe event', result:'fail'},
+  ]});
+  assert.equal(h.c.webhookStatusLabel.value, '已启用');
+  assert.equal(h.c.webhook.deliveries.length, 1);
+  assert.equal(h.c.webhook.deliveries[0].event, 'send_complete');
+  assert.equal(JSON.stringify(h.c.webhook).includes('secret'), false);
+  assert.equal(JSON.stringify(h.c.webhook).includes('http'), false);
+  assert.equal(await h.c.sendTestWebhook(), true);
+  assert(h.posted.some(item => item.url === '/api/webhook/test'));
+  assert.equal(h.c.webhook.deliveries[0].event, 'test_ping');
+  assert.equal(JSON.stringify(h.c.webhook).includes('secret'), false);
+  h.cleanup();
+ });
  console.log(JSON.stringify({passed:tests.length,tests},null,2));
+
 })().catch(error=>{console.error(error);process.exitCode=1;});

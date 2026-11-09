@@ -2307,6 +2307,8 @@
               </div>
               <p class="today-results__message" role="status" aria-live="polite" aria-atomic="true">{{ todayResultMessage }}</p>
               <p class="status-detail">{{ todayResultDetail }}</p>
+              <p v-if="streakWarningMessage" class="status-detail" role="status" style="background:#fff0dd;color:#6c2600;font-weight:700;padding:6px 8px;">{{ streakWarningMessage }}</p>
+              <p v-if="activeDiagnosticMessage" class="status-detail" role="status">{{ activeDiagnosticMessage }}</p>
             </section>
 
             <!-- 连续失败告警：不改变定时任务和用户开关 -->
@@ -2456,7 +2458,7 @@
               <div class="card-header">
                 <div>
                   <h3 class="card-title">好友与消息台账</h3>
-                  <p class="card-desc">自动同步抖音好友列表，一键勾选火花好友，保存后每日定时自动发送。</p>
+                  <p class="card-desc">自动同步抖音好友列表，一键勾选有火花的好友，保存后每日定时自动发送。</p>
                 </div>
                 <div class="mobile-action-grid" style="display: flex; gap: 8px; flex-wrap: wrap;">
                   <el-button type="primary" size="small" class="btn-action-primary" :loading="syncing" :disabled="ledgerWriteBusy" @click="syncContacts">
@@ -2464,7 +2466,7 @@
                   </el-button>
                   <el-button size="small" :disabled="ledgerWriteBusy" @click="refreshLedgerSelection">刷新已生效名单</el-button>
                   <el-button size="small" @click="autoSelectSparkFriends">
-                    一键勾选火花
+                    一键勾选有火花的好友
                   </el-button>
                   <el-button size="small" @click="clearSelectedFriends">
                     清空勾选
@@ -2508,6 +2510,8 @@
                 <p>程序没能确认这些消息是否发出。请打开抖音看一眼聊天记录，再点对应按钮。当天未核对的不会重复发送；第二天会照常发送，不会让火花断掉。</p>
                 <article v-for="item in sendReviewCandidates" :key="item.entry_id" style="padding:12px 0;border-top:1px solid currentColor">
                   <p style="overflow-wrap:anywhere">{{ item.display_name }}：{{ item.send_review_status === 'rejected' ? '页面提示发送失败' : '结果未确认' }}（{{ item.send_review_date || '日期未知' }}{{ item.send_review_blocks_today ? '，今天暂停重发' : '，已不影响今天发送' }}）</p>
+                  <p v-if="item.active_diagnostic_reason">待核对原因：{{ item.active_diagnostic_reason }}</p>
+                  <p v-if="verificationLabel(item)">{{ verificationLabel(item) }}</p>
                   <div style="display:flex;gap:10px;flex-wrap:wrap">
                     <el-button style="min-height:44px;color:#fff!important;background:#353535!important;border-color:#aaa!important" :disabled="!identityDecisionAllowed" @click="reviewSend(item,'sent')">在抖音看到了，记为已发</el-button>
                     <el-button style="min-height:44px;color:#fff!important;background:#353535!important;border-color:#aaa!important" :disabled="!identityDecisionAllowed" @click="reviewSend(item,'not_sent')">确认没发出，允许重发</el-button>
@@ -2517,17 +2521,19 @@
 
 
               <!-- 搜索过滤条 -->
-              <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+              <div style="margin-bottom: 12px;">
                 <el-input
                   v-model="searchKeyword"
                   placeholder="搜索好友昵称或火花天数..."
                   clearable
                   size="small"
-                  style="flex: 1; min-width: 200px;"
-                />
-                <el-checkbox v-if="historicalContactCount" v-model="showHistoricalContacts" size="small">显示历史记录（{{ historicalContactCount }}）</el-checkbox>
-                <div style="font-size: 12.5px; color: var(--text-muted); white-space: nowrap;">
-                  草稿勾选 <strong style="color: var(--text-main);">{{ selectedFriendCount }}</strong> 位好友{{ selectionDirty ? ' · 尚未保存' : '' }}
+                ></el-input>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px;">
+                  <el-checkbox v-if="historicalContactCount" v-model="showHistoricalContacts" size="small">显示历史记录（{{ historicalContactCount }}）</el-checkbox>
+                  <el-checkbox v-model="showOnlySparkFriends" size="small">只看有火花的好友（{{ sparkFriendCount }}）</el-checkbox>
+                  <div style="font-size: 12.5px; color: var(--text-muted); white-space: nowrap;">
+                    草稿勾选 <strong style="color: var(--text-main);">{{ selectedFriendCount }}</strong> 位好友{{ selectionDirty ? ' · 尚未保存' : '' }}
+                  </div>
                 </div>
               </div>
 
@@ -2557,7 +2563,10 @@
                       <span style="font-size:12px;flex-shrink:0;white-space:normal;" :title="streakDetail(row)">{{ streakDisplay(row) }}</span>
                     </div>
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">{{ contactTimeDisplay(row) }}</div>
-                    <div v-if="row.streak_status" style="font-size:12px;margin-top:3px;white-space:normal" :style="streakStale(row) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(row) }}</div>
+                    <div v-if="row.streak_status || row.streak_seen_at || row.streak_label" style="font-size:12px;margin-top:3px;white-space:normal" :style="streakStale(row) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(row) }}</div>
+                    <div v-if="streakExpiring(row)" role="status" style="font-size:12px;margin-top:3px;background:#fff0dd;color:#6c2600;font-weight:700;padding:2px 4px;">火花即将消失：{{ row.streak_label }}</div>
+                    <div v-if="row.active_diagnostic_reason" style="font-size:12px;margin-top:3px;">待核对原因：{{ row.active_diagnostic_reason }}</div>
+                    <div v-if="verificationLabel(row)" style="font-size:12px;margin-top:3px;">{{ verificationLabel(row) }}</div>
                     <div v-if="identityDescription(row)" style="font-size:12px;margin-top:3px;">{{ identityDescription(row) }}</div>
                   </div>
                   <!-- 状态标签 -->
@@ -2592,7 +2601,10 @@
                     <div class="user-name">{{ item.nickname }}</div>
                     <div class="user-sub">{{ contactTimeDisplay(item) }}</div>
                     <div v-if="identityDescription(item)" class="user-sub">{{ identityDescription(item) }}</div>
-                    <div v-if="item.streak_status" class="user-sub" style="white-space:normal" :style="streakStale(item) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(item) }}</div>
+                    <div v-if="item.streak_status || item.streak_seen_at || item.streak_label" class="user-sub" style="white-space:normal" :style="streakStale(item) ? {background:'#fff0dd',color:'#6c2600',fontWeight:'700',padding:'2px'} : {}">{{ streakDetail(item) }}</div>
+                    <div v-if="streakExpiring(item)" role="status" class="user-sub" style="background:#fff0dd;color:#6c2600;font-weight:700;padding:2px 4px;">火花即将消失：{{ item.streak_label }}</div>
+                    <div v-if="item.active_diagnostic_reason" class="user-sub">待核对原因：{{ item.active_diagnostic_reason }}</div>
+                    <div v-if="verificationLabel(item)" class="user-sub">{{ verificationLabel(item) }}</div>
                   </div>
                   <div class="pill-group" style="max-width:45%;flex-wrap:wrap;justify-content:flex-end">
                     <span class="spark-pill" style="white-space:normal;max-width:100%;overflow-wrap:anywhere" :title="streakDetail(item)">{{ streakBadge(item) }}</span>
@@ -2722,6 +2734,75 @@
           <!-- 6. 邮箱告警配置页 -->
           <div v-if="tab === 'email'">
 
+            <div class="card stagger-item no-tilt" style="margin-bottom:16px;">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Grok Bot Webhook</h3>
+                  <p class="card-desc">运行事件可以发给已配置的 Webhook。地址和密钥只写在服务器环境变量里，此页不显示。</p>
+                </div>
+                <el-tag :type="webhook.enabled ? 'success' : 'info'">{{ webhookStatusLabel }}</el-tag>
+              </div>
+              <p class="status-detail" role="status">{{ webhookHint }}</p>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+                <el-button type="primary" :loading="testingWebhook" :disabled="!webhook.enabled" @click="sendTestWebhook">发送测试 Webhook</el-button>
+              </div>
+              <p v-if="webhook.message" class="status-detail" role="status" aria-live="polite">{{ webhook.message }}</p>
+              <p class="status-detail" style="margin-top:12px;">最近投递（仅当前进程）</p>
+              <ul v-if="webhook.deliveries.length" style="margin:6px 0 0; padding-left:18px; line-height:1.7; font-size:13px; color:var(--text-regular);">
+                <li v-for="(item, index) in webhook.deliveries" :key="item.time + '-' + item.event + '-' + index">
+                  {{ item.time }} · {{ item.event }} · {{ webhookResultLabel(item.result) }}
+                </li>
+              </ul>
+              <p v-else class="status-detail">尚无投递记录。</p>
+            </div>
+
+            <div class="card stagger-item no-tilt" style="margin-bottom:16px;">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">小号聊天助手</h3>
+                  <p class="card-desc">用另一个抖音号接收主号私信，转发到 Webhook，再从小号回复。主号火花会话不会被用来发送这些回复。</p>
+                </div>
+                <el-tag :type="assistant.enabled ? (assistant.session_ok === true ? 'success' : assistant.session_ok === false ? 'danger' : 'warning') : 'info'">{{ assistantStatusLabel }}</el-tag>
+              </div>
+              <p class="status-detail" role="status">{{ assistantHint }}</p>
+              <p class="status-detail">白名单：{{ assistant.allowlist.length ? assistant.allowlist.join('、') : '未设置（不会转发，也不会回复任何人）' }}</p>
+              <p class="status-detail">上次轮询：{{ assistant.last_poll || '尚未轮询' }} · 间隔 {{ assistant.poll_seconds }} 秒 · 待发回复 {{ assistant.pending_replies }}</p>
+              <p v-if="assistant.last_error" class="status-detail" role="alert">{{ assistant.last_error }}</p>
+              <p class="status-detail" style="margin-top:12px;">最近消息（只显示摘要）</p>
+              <ul v-if="assistant.recent.length" style="margin:6px 0 0; padding-left:18px; line-height:1.7; font-size:13px; color:var(--text-regular);">
+                <li v-for="item in assistant.recent" :key="item.message_id">
+                  {{ item.message_time || '时间未知' }} · {{ item.conversation_name || '未知会话' }} · {{ item.kind === 'share' ? '分享' : '文字' }} · {{ item.preview || '（无文字）' }}
+                </li>
+              </ul>
+              <p v-else class="status-detail">尚无已转发的消息。</p>
+              <div style="display:grid; grid-template-columns:minmax(140px, 220px) 1fr; gap:12px; margin-top:16px; max-width:720px;">
+                <el-input v-model="assistantReplyTo" maxlength="80" placeholder="回复给（白名单昵称或 ID）" />
+                <el-input v-model="assistantReplyText" maxlength="500" type="textarea" :rows="2" placeholder="回复内容，最多 500 字" />
+              </div>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+                <el-button type="primary" :loading="assistantSending" :disabled="!assistant.enabled || !assistant.allowlist.length" @click="sendAssistantReply">排队回复</el-button>
+                <el-button :loading="assistantLoading" @click="loadAssistantStatus">刷新状态</el-button>
+              </div>
+              <p v-if="assistant.replyMessage" class="status-detail" role="status">{{ assistant.replyMessage }}</p>
+              <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border-color);">
+                <h4 style="font-size:14px; margin:0 0 8px;">小号登录</h4>
+                <p class="status-detail">请用小号的抖音 App 扫码。登录态写入独立文件，不会替换主号凭证。</p>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0;">
+                  <el-button v-if="!assistantQr.hasJob && !assistantQr.startUnconfirmed" type="primary" :disabled="!assistant.enabled || assistantQr.running" @click="startAssistantQr">{{ assistantQr.status==='success' ? '重新扫码' : '小号扫码登录' }}</el-button>
+                  <el-button v-if="assistantQr.canRefresh" type="primary" @click="refreshAssistantQr">刷新二维码</el-button>
+                  <el-button v-if="assistantQr.hasJob || assistantQr.running" :disabled="assistantQr.status==='cancelling'" @click="cancelAssistantQr">取消</el-button>
+                  <el-button :disabled="assistantQr.running || assistantQr.hasJob" @click="$refs.assistantStateInput.click()">上传小号 state</el-button>
+                  <input type="file" ref="assistantStateInput" accept=".json,application/json" style="display:none" @change="uploadAssistantState" />
+                </div>
+                <div v-if="assistantQr.imageUrl || assistantQr.verificationImageUrl" style="width:min(100%, 280px); background:#fff; border:1px solid #d1d5db; border-radius:16px; padding:12px;">
+                  <img v-if="assistantQr.status==='verification_required' && assistantQr.verificationImageUrl" :src="assistantQr.verificationImageUrl" alt="小号登录验证图片" draggable="false" @dragstart.prevent @pointerdown="assistantVerificationPointerDown" @pointermove="assistantVerificationPointerMove" @pointerup="assistantVerificationPointerUp" @pointercancel="assistantVerificationPointerCancel" style="display:block; width:100%; height:auto; touch-action:none;" />
+                  <img v-else-if="assistantQr.imageUrl" :src="assistantQr.imageUrl" alt="小号登录二维码" style="display:block; width:100%; height:auto;" />
+                </div>
+                <p class="status-detail" role="status">{{ assistantQr.message }}</p>
+                <p v-if="assistantQr.error" role="alert" style="font-size:13px; color:var(--color-danger);">{{ assistantQr.error }}</p>
+              </div>
+            </div>
+
             <!-- 顶部两个可点击的小框架（WAAPI 像素手风琴） -->
             <div id="emailBar" :class="{'is-expanded':!!emailSubView}" style="display:flex; width:100%; gap:10px; margin-bottom:16px; max-width:340px;">
               <button type="button" class="card no-tilt email-view-button" :class="{'is-collapsed':emailSubView === 'text'}" aria-label="卡死告警邮箱设置" :aria-expanded="emailSubView === 'smtp'" style="width:min(165px, calc((100% - 10px) / 2)); flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px; cursor:pointer; box-sizing:border-box; overflow:hidden;"
@@ -2823,9 +2904,9 @@
   <script src="/static/vendor/vue.global.prod.js"></script>
   <script src="/static/vendor/element-plus.full.min.js"></script>
   <script src="/static/vendor/axios.min.js"></script>
-  <script src="/static/qr-login.js?v=2.9-modules1"></script>
+  <script src="/static/qr-login.js?v=2.9-port2"></script>
 
   <script data-console-module src="/static/console-results.js?v=2.9-modules1"></script>
-  <script data-console-module src="/static/console-app.js?v=2.9-modules1"></script>
+  <script data-console-module src="/static/console-app.js?v=2.9-port2"></script>
 </body>
 </html>

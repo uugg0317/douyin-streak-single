@@ -14,6 +14,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.executors.pool import ThreadPoolExecutor as SchedulerThreadPoolExecutor
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from .config import DATA_DIR, load_config
 from .harvester import creator_map
@@ -234,6 +235,39 @@ def ensure_background_started() -> bool:
         _background_starter()
         _background_started = True
         return True
+
+
+def ensure_scheduler() -> BackgroundScheduler:
+    """Start the shared scheduler without registering the daily streak jobs."""
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = BackgroundScheduler(timezone=TZ)
+        _scheduler.start()
+    return _scheduler
+
+
+def add_interval_job(func: Callable, seconds: int, job_id: str) -> None:
+    """Register a coalesced interval job on the shared scheduler.
+
+    Used by the assistant inbox. It does not install or replace the daily
+    streak send, harvest, prewarm, or session-check jobs.
+    """
+    if not isinstance(job_id, str) or not job_id.strip():
+        raise ValueError("interval job id required")
+    interval = int(seconds)
+    if interval <= 0:
+        raise ValueError("interval seconds must be positive")
+    sched = ensure_scheduler()
+    sched.add_job(
+        func,
+        IntervalTrigger(seconds=interval, timezone=TZ),
+        id=job_id.strip(),
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=max(30, interval),
+    )
+    logger.info("间隔任务已更新：%s 每 %s 秒", job_id.strip(), interval)
 
 
 def configure(

@@ -69,3 +69,56 @@ class RenameTests(TestCase):
         new=next(x for x in rows if x['entry_id']!=self.old['entry_id'])
         self.assertTrue(new['identity_review_pending'])
         self.assertIn('selected_identity_needs_exclusion',new['rename_candidates'][0]['evidence'])
+        self.assertFalse(new['selected'])
+        self.assertTrue(next(x for x in rows if x['entry_id']==self.old['entry_id'])['selected'])
+
+    def test_same_name_avatar_change_carries_selection_and_never_unselects_old(self):
+        old_avatar='https://p3.douyinpic.com/img/aweme-avatar/tos-cn-avt-0015_oldresource~c5_168x168.webp'
+        new_avatar='https://p3.douyinpic.com/img/aweme-avatar/tos-cn-avt-0015_newresource~c5_168x168.webp'
+        stale_avatar='https://p3.douyinpic.com/img/aweme-avatar/tos-cn-avt-0015_stale~c5_168x168.webp'
+        stale=ledger._default_entry('秋亦')
+        stale.update(avatar=stale_avatar,selected=True,selected_order=2,has_conversation=True,
+                     source={'consumer':True},consumer_key='秋亦|'+stale_avatar+'|1',streak_days=215,
+                     streak_status='unknown',observation_status='not_observed',
+                     last_sent_at='2026-10-27T15:11:12+08:00',last_status='success')
+        current=ledger._default_entry('秋亦')
+        current.update(avatar=old_avatar,selected=True,selected_order=1,has_conversation=True,
+                       source={'consumer':True},consumer_key='秋亦|'+old_avatar+'|1',streak_days=227,
+                       streak_status='confirmed',observation_status='seen',
+                       last_sent_at='2026-11-08T00:00:22+08:00',last_status='success')
+        untouched=ledger._default_entry('马')
+        untouched.update(avatar='https://p3.douyinpic.com/img/aweme-avatar/tos-cn-avt-0015_horse~c5_168x168.webp',
+                         selected=True,has_conversation=True,source={'consumer':True},
+                         streak_days=399,streak_status='confirmed',observation_status='seen')
+        unselected=ledger._default_entry('路人')
+        unselected.update(avatar='https://p3.douyinpic.com/img/aweme-avatar/tos-cn-avt-0015_other~c5_168x168.webp',
+                          selected=False,has_conversation=True,source={'consumer':True},
+                          streak_days=3,streak_status='confirmed',observation_status='seen')
+        ledger._save([stale,current,untouched,unselected])
+        ledger.merge_consumer_contacts([
+            {'name':'秋亦','avatar':new_avatar,'streak':235,'streak_status':'confirmed','streak_source':'class'},
+            {'name':'马','avatar':untouched['avatar'],'streak':399,'streak_status':'confirmed','streak_source':'class'},
+            {'name':'路人','avatar':unselected['avatar'],'streak':3,'streak_status':'confirmed','streak_source':'class'},
+        ],capture={'complete':True})
+        rows=ledger.load_ledger()
+        by_id={e['entry_id']:e for e in rows}
+        live=[e for e in rows if e.get('display_name')=='秋亦' and e.get('observation_status')=='seen']
+        self.assertEqual(len(live),1)
+        self.assertNotIn(live[0]['entry_id'],{stale['entry_id'],current['entry_id']})
+        self.assertTrue(live[0]['selected'])
+        self.assertEqual(live[0]['selected_order'],1)
+        self.assertEqual(live[0]['streak_days'],235)
+        self.assertTrue(by_id[current['entry_id']]['selected'])
+        self.assertEqual(by_id[current['entry_id']]['observation_status'],'not_observed')
+        self.assertTrue(by_id[stale['entry_id']]['selected'])
+        self.assertEqual(by_id[stale['entry_id']]['observation_status'],'not_observed')
+        self.assertTrue(by_id[untouched['entry_id']]['selected'])
+        self.assertFalse(by_id[unselected['entry_id']]['selected'])
+
+    def test_unselected_history_does_not_invent_selection_on_new_row(self):
+        self.old['selected']=False
+        ledger._save([self.old])
+        rows=self.sync(name='旧名',avatar='https://example.invalid/completely-different')
+        new=next(x for x in rows if x['entry_id']!=self.old['entry_id'])
+        self.assertFalse(new['selected'])
+        self.assertFalse(next(x for x in rows if x['entry_id']==self.old['entry_id'])['selected'])

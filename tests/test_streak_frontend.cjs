@@ -61,4 +61,50 @@ test('默认只显示当前记录，历史开关可查看且不改变勾选',asy
  assert.equal(h.component.historicalContactCount.value,1);assert.deepEqual(Array.from(h.component.filteredContacts.value,x=>x.entry_id),['now']);
  h.component.showHistoricalContacts.value=true;assert.equal(h.component.filteredContacts.value.length,2);assert.equal(h.component.contacts.value[0].selected,true);await h.close();
 });
+test('灰色火花与观察时间会出现在详情里，过期提示和核对状态单独展示',async()=>{
+ const h=scope.makeFixture();await h.connect();
+ const now='2023-11-15T06:13:20+08:00';
+ const rows=[
+  {entry_id:'gray',display_name:'灰色',streak_days:361,streak_status:'confirmed',streak_at_risk:true,streak_seen_at:now,streak_confirmed_at:now},
+  {entry_id:'expire',display_name:'即将消失',streak_days:0,streak_status:'unknown',streak_label:'1 天后消失',streak_seen_at:now},
+  {entry_id:'pending',display_name:'待核对',send_verification_status:'pending_review',active_diagnostic_reason:'scope_changed'}];
+ h.handlers.set('/api/ledger',()=>({data:{entries:rows,ledger_version:'risk'}}));
+ await h.component.loadAll();
+ assert.match(h.component.streakDisplay(h.component.contacts.value[0]), /361 天.*灰色/);
+ assert.match(h.component.streakDetail(h.component.contacts.value[0]), /灰色火花/);
+ assert.match(h.component.streakDetail(h.component.contacts.value[0]), /观察于/);
+ assert.equal(h.component.streakExpiring(h.component.contacts.value[1]), true);
+ assert.match(h.component.streakDetail(h.component.contacts.value[1]), /火花即将消失：1 天后消失/);
+ assert.match(h.component.verificationLabel(h.component.contacts.value[2]), /仍待核对/);
+ assert.equal(h.component.contacts.value[2].active_diagnostic_reason, 'scope_changed');
+ await h.close();
+});
+test('总览展示火花即将消失警告，且保留最后确认于作为无观察时间时的回退',async()=>{
+ const h=scope.makeFixture();await h.connect();
+ h.handlers.set('/api/status',()=>({data:{today_summary:{business_date:'2026-11-08',accepted:0,unconfirmed:0,pending:0,selected:1,includes_historical_unconfirmed:false,historical_unreviewed:0,streak_warnings:[{display_name:'空空',streak_label:'6 天后消失',expires_in_days:6},{display_name:'合成即将消失',streak_label:'1 天后消失',expires_in_days:1,observed_at:'2026-11-08T00:12:00+08:00'}]},active_send_diagnostics:[{display_name:'合成待核对',reason:'scope_changed',business_date:'2026-11-08',at:'2026-11-08T00:05:00+08:00'}]}}));
+ await h.component.loadStatus();
+ assert.equal(h.component.todaySummary.value.streak_warnings.length, 1);
+ assert.match(h.component.streakWarningMessage.value, /合成即将消失/);
+ assert.equal(h.component.streakWarningMessage.value.includes('空空'), false);
+ assert.match(h.component.activeDiagnosticMessage.value, /合成待核对.*scope_changed/);
+ assert.match(h.component.streakDetail({streak_status:'unknown',streak_confirmed_date:'2026-10-01',streak_unconfirmed_days:17,streak_may_be_stale:true}), /最后确认于 2026-10-01（17 天前）/);
+ await h.close();
+});
+
+test('一键勾选只保留当前有火花的好友，并可只看有火花',async()=>{
+ const h=scope.makeFixture();await h.connect();
+ const rows=[
+  {entry_id:'spark',display_name:'有火花',streak_days:218,streak_status:'confirmed',observation_status:'seen',selected:false},
+  {entry_id:'gray',display_name:'灰色',streak_days:361,streak_status:'confirmed',streak_at_risk:true,observation_status:'seen',selected:false},
+  {entry_id:'extra',display_name:'无火花却勾选',streak_days:0,streak_status:'unknown',observation_status:'seen',selected:true},
+  {entry_id:'old',display_name:'历史重复',streak_days:215,streak_status:'unknown',observation_status:'not_observed',selected:true}];
+ h.handlers.set('/api/ledger',()=>({data:{entries:rows,ledger_version:'exact-select'}}));
+ await h.component.loadAll();
+ assert.equal(h.component.sparkFriendCount.value,2);
+ h.component.autoSelectSparkFriends();
+ assert.deepEqual(Array.from(h.component.contacts.value.filter(x=>x.selected),x=>x.entry_id),['spark','gray']);
+ h.component.showOnlySparkFriends.value=true;
+ assert.deepEqual(Array.from(h.component.filteredContacts.value,x=>x.entry_id),['spark','gray']);
+ await h.close();
+});
 (async()=>{let failed=0;for(const t of tests){try{await t.fn();console.log('PASS '+t.name);}catch(e){failed++;console.error(e.stack);}}console.log(JSON.stringify({passed:tests.length-failed,failed}));process.exitCode=failed?1:0;})();

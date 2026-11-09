@@ -179,6 +179,7 @@ const app = createApp({
     let statusTimer = null;
     const searchKeyword = ref('');
     const showHistoricalContacts = ref(false);
+    const showOnlySparkFriends = ref(false);
     const historicalContactCount = computed(() => contacts.value.filter(row => row.observation_status === 'not_observed').length);
     const avatarErrors = ref(new Set());
     const avatarProxy = (url) => url ? `/api/avatar?url=${encodeURIComponent(url)}` : '';
@@ -249,6 +250,7 @@ const app = createApp({
       retry_status: 'none',
       retry_dispatching: false,
       pending_retry_entries: [],
+      active_send_diagnostics: [],
     };
     const status = reactive({...defaultStatus});
     const todaySummary = ref(null);
@@ -259,7 +261,18 @@ const app = createApp({
       if (!['accepted','unconfirmed','pending','selected'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0) || typeof value.includes_historical_unconfirmed !== 'boolean') return null;
       return {business_date:value.business_date, accepted:value.accepted, unconfirmed:value.unconfirmed,
         pending:value.pending, selected:value.selected, includes_historical_unconfirmed:value.includes_historical_unconfirmed,
-        historical_unreviewed:Number.isSafeInteger(value.historical_unreviewed) && value.historical_unreviewed >= 0 ? value.historical_unreviewed : 0};
+        historical_unreviewed:Number.isSafeInteger(value.historical_unreviewed) && value.historical_unreviewed >= 0 ? value.historical_unreviewed : 0,
+        streak_warnings:(() => {
+          const rows = Array.isArray(value.streak_warnings) ? value.streak_warnings : [];
+          return rows.flatMap(item => {
+            if (!item || typeof item !== 'object') return [];
+            const name = typeof item.display_name === 'string' ? item.display_name.slice(0, 80) : '';
+            const label = typeof item.streak_label === 'string' ? item.streak_label.slice(0, 32) : '';
+            const days = Number(item.expires_in_days);
+            if (!name || !/^[0-9]+\s*天后消失$/.test(label) || !Number.isSafeInteger(days) || days < 0 || days > 3) return [];
+            return [{display_name:name, streak_label:label, expires_in_days:days, observed_at:typeof item.observed_at === 'string' ? item.observed_at.slice(0, 40) : ''}];
+          });
+        })()};
     };
     const backgroundPauseMessage = computed(() => status.status_connected && status.background_tasks_enabled === false
       ? (config.auto_run_enabled
@@ -277,6 +290,16 @@ const app = createApp({
       return (value.historical_unreviewed > 0 ? `另有 ${value.historical_unreviewed} 人的往日结果未核对，不影响今天发送。` : '') +
         (value.unconfirmed > 0 ? '今天待核对的好友请在抖音看一眼，再到“好友”页点核对按钮。' : '') +
         '已确认接受不代表对方已读，也不保证火花增长。';
+    });
+    const streakWarningMessage = computed(() => {
+      const warnings = (todaySummary.value && todaySummary.value.streak_warnings) || [];
+      if (!warnings.length) return '';
+      return '火花即将消失：' + warnings.map(item => item.display_name + '（' + item.streak_label + (item.observed_at ? '，观察于 ' + item.observed_at : '') + '）').join('、');
+    });
+    const activeDiagnosticMessage = computed(() => {
+      const items = status.active_send_diagnostics || [];
+      if (!items.length) return '';
+      return '仍待核对：' + items.map(item => item.display_name + '（' + item.reason + '）').join('、') + '。确认发出后，这些诊断会标记为已取代。';
     });
     const baseDocTitle = () => `抖音自动续火花${status.version || appVersion.value ? ' ' + (status.version || appVersion.value) : ''} · Douyin Cloud Streak`;
     let pollDelay = 10000;
@@ -359,6 +382,8 @@ const app = createApp({
     const streakResetCandidates = computed(() => savedLedgerContacts.value.filter(row=>['reset_pending','correction_pending'].includes(row.streak_status)));
     const sendReviewCandidates = computed(() => savedLedgerContacts.value.filter(row=>row.send_review_status));
     const identitySendBlocked = row => row.identity_ambiguous || !!row.send_block_reason || row.observation_status === 'not_observed' || row.rename_candidates?.some(pair=>pair.unresolved_send);
+    // Same-day related_sent_today still blocks sending, but the friend must stay selectable for later days.
+    const identityListBlocked = row => row.identity_ambiguous || row.observation_status === 'not_observed' || (row.send_block_reason && row.send_block_reason !== 'related_sent_today') || row.rename_candidates?.some(pair=>pair.unresolved_send);
     const identityDescription = row => {
       if (row.send_block_reason === 'related_send_unconfirmed' || row.rename_candidates?.some(pair=>pair.unresolved_send)) return '历史发送结果待核对，暂不重复发送。';
       if (row.send_block_reason === 'related_sent_today') return '关联历史今天已发送，今日不重复发送。';
@@ -393,7 +418,7 @@ const app = createApp({
       if (row.streak_status === 'suspect') return '读数待核对' + history;
       if (row.streak_status === 'reset_pending') return `可能已重新开始（历史 ${days} 天 → 新读数 ${row.streak_suspect_value} 天，待确认）`;
       if (row.streak_status === 'none') return '已确认无火花';
-      return days > 0 ? `🔥 ${days} 天` : '尚无确认火花记录';
+      return days > 0 ? (`🔥 ${days} 天` + (row.streak_at_risk === true ? ' · 灰色' : '')) : '尚无确认火花记录';
     };
     const streakAge = row => {
       let day=row.streak_confirmed_date, days=row.streak_unconfirmed_days;
@@ -409,8 +434,43 @@ const app = createApp({
       const stale=known ? row.streak_may_be_stale===true : ['unknown','suspect','reset_pending'].includes(row.streak_status) && days>3;
       return {label:`最后确认于 ${day}（${days} 天前）${stale?' · 可能已过期':''}`,stale};
     };
-    const streakDetail = row => streakAge(row).label;
-    const streakStale = row => streakAge(row).stale;
+    const formatObserved = value => {
+      const date = new Date(value || '');
+      if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now() + 120000) return '';
+      return date.toLocaleString('zh-CN', {hour12:false, timeZone:'Asia/Shanghai'});
+    };
+    const observationDay = value => {
+      const date = new Date(value || '');
+      if (!Number.isFinite(date.getTime())) return '';
+      return new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit'}).format(date);
+    };
+    const streakExpiring = row => {
+      const matched = String(row.streak_label || '').match(/^([0-9]+)\s*天后消失$/);
+      return !!matched && Number(matched[1]) <= 3;
+    };
+    const observationStale = row => {
+      const day = observationDay(row.streak_seen_at || row.streak_confirmed_at);
+      if (!day) return streakAge(row).stale;
+      return day !== observationDay(new Date().toISOString());
+    };
+    const streakDetail = row => {
+      const age = streakAge(row);
+      const observed = formatObserved(row.streak_seen_at || row.streak_confirmed_at);
+      const stale = observationStale(row);
+      const observedLabel = observed ? ((row.streak_at_risk === true ? '灰色火花 · ' : '') + (stale ? '缓存读数 · ' : '') + '观察于 ' + observed) : age.label;
+      if (streakExpiring(row)) return `火花即将消失：${row.streak_label} · ${observedLabel}`;
+      if (stale && observed) return `${observedLabel} · ${age.label}`;
+      return observed ? observedLabel : age.label;
+    };
+    const streakStale = row => streakAge(row).stale || observationStale(row) || streakExpiring(row);
+    const verificationLabel = row => {
+      if (row.send_verification_status === 'confirmed' && row.send_verification_by === 'user_confirmed_sent') return '已按人工核对标记为发出，不会自动重发';
+      if (row.send_verification_status === 'confirmed') return '发送后已在会话中核对，不会自动重发';
+      if (row.send_verification_status === 'failed' && row.send_verification_by === 'user_confirmed_not_sent') return '已按人工核对标记为未发出';
+      if (row.send_verification_status === 'failed') return '核对到发送失败，不会自动重发';
+      if (row.send_verification_status === 'pending_review') return '发送后仍待核对，不会自动重发';
+      return '';
+    };
     const streakBadge = row => row.streak_status==='reset_pending' ? '重置待确认' : streakDisplay(row);
     // 特殊火花纳入人数和勾选，但标签数字不是火花天数。
     const hasSpecialStreak = row => !['suspect','reset_pending','none'].includes(row.streak_status) && /^(?:重燃中\s*[0-9]+\s*\/\s*[0-9]+|[0-9]+\s*天后消失)$/.test(row.streak_label || '');
@@ -421,7 +481,8 @@ const app = createApp({
       const kw = searchKeyword.value.trim().toLowerCase();
       // 仅改变展示顺序；原始联系人顺序、勾选及发送顺序不变。
       const rank = row => hasCurrentStreak(row) ? 0 : row.observation_status === 'not_observed' ? 2 : 1;
-      const visibleRows = contacts.value.filter(row => showHistoricalContacts.value || row.observation_status !== 'not_observed').sort((a,b) => rank(a) - rank(b));
+      let visibleRows = contacts.value.filter(row => showHistoricalContacts.value || row.observation_status !== 'not_observed').sort((a,b) => rank(a) - rank(b));
+      if (showOnlySparkFriends.value) visibleRows = visibleRows.filter(hasCurrentStreak);
       if (!kw) return visibleRows;
       return visibleRows.filter(c =>
         (c.nickname && c.nickname.toLowerCase().includes(kw)) ||
@@ -551,6 +612,13 @@ const app = createApp({
         status.retry_status = status.retry_dispatching ? 'dispatching' : ['manual','scheduled'].includes(res.data.retry_status) ? res.data.retry_status : 'none';
         status.pending_retry_entries = Array.isArray(res.data.pending_retry_entries) ? res.data.pending_retry_entries : [];
         todaySummary.value = parseTodaySummary(res.data.today_summary);
+        status.active_send_diagnostics = Array.isArray(res.data.active_send_diagnostics) ? res.data.active_send_diagnostics.flatMap(item => {
+          if (!item || typeof item !== 'object') return [];
+          const name = typeof item.display_name === 'string' ? item.display_name.slice(0, 80) : '';
+          const reason = typeof item.reason === 'string' ? item.reason.slice(0, 80) : '';
+          if (!name || !reason) return [];
+          return [{display_name:name, reason, business_date:typeof item.business_date === 'string' ? item.business_date.slice(0, 40) : '', at:typeof item.at === 'string' ? item.at.slice(0, 40) : ''}];
+        }) : [];
         Object.assign(lastRunInfo, summarizeLastRun(res.data.last_run));
         lastRunDetails.value = describeLastRun(res.data.last_run);
         // 连续失败时标签页标题加警示（比声音/震动可靠，不依赖浏览器前台或静音）
@@ -608,6 +676,7 @@ const app = createApp({
           streak_days: Number(item.streak_days || item.spark_days || 0),
           streak_status: item.streak_status || null,
           streak_label: item.streak_label || null,
+          streak_at_risk: item.streak_at_risk === true,
           streak_source: item.streak_source || null,
           streak_seen_at: item.streak_seen_at || null,
           streak_confirmed_at: item.streak_confirmed_at || null,
@@ -625,6 +694,9 @@ const app = createApp({
           send_review_status: ['unconfirmed','rejected'].includes(item.send_review_status) ? item.send_review_status : null,
           send_review_date: typeof item.send_review_date === 'string' ? item.send_review_date : null,
           send_review_blocks_today: item.send_review_blocks_today === true,
+          send_verification_status: ['confirmed','failed','pending_review'].includes(item.send_verification_status) ? item.send_verification_status : '',
+          send_verification_by: typeof item.send_verification_by === 'string' ? item.send_verification_by : '',
+          active_diagnostic_reason: typeof item.active_diagnostic_reason === 'string' ? item.active_diagnostic_reason.slice(0, 80) : '',
           rename_candidates: Array.isArray(item.rename_candidates) ? item.rename_candidates.map(pair=>({...pair})) : [],
           selected: Boolean(item.selected) && !isAmbiguous(item),
           last_status: item.last_status || (item.last_sent_at ? 'success' : 'pending'),
@@ -729,6 +801,11 @@ const app = createApp({
       savingLedger.value = false; savingConfig.value = false; savingEmail.value = false; testingEmail.value = false;
       ledgerWriteOwner = null; ledgerWriteBusy.value = false; ledgerWriteLabel.value = '';
       pendingRetryBusy.value = false;
+      webhook.enabled = false; webhook.debounceSeconds = 600; webhook.deliveries = []; webhook.message = '';
+      testingWebhook.value = false;
+      Object.assign(assistant, defaultAssistantStatus());
+      assistantReplyTo.value = ''; assistantReplyText.value = ''; assistant.replyMessage = '';
+      assistantSending.value = false; assistantLoading.value = false;
 
       iosBanner.visible = false;
       if (iosBannerTimer !== null) clearTimeout(iosBannerTimer);
@@ -897,9 +974,218 @@ const app = createApp({
       }
     };
 
+    const webhook = reactive({enabled:false, debounceSeconds:600, deliveries:[], message:''});
+    const testingWebhook = ref(false);
+    const webhookStatusLabel = computed(() => webhook.enabled ? '已启用' : '未配置');
+    const webhookHint = computed(() => {
+      if (!webhook.enabled) return '未设置 Webhook 地址时不会外发。在服务器 .env 填写后重启即可启用。此页不显示地址或密钥。';
+      if (webhook.debounceSeconds <= 0) return '已启用。相同事件不会按时间间隔合并。任务卡死、测试发送和小号消息始终发出。地址和密钥不在此页显示。';
+      const minutes = Math.max(1, Math.round(webhook.debounceSeconds / 60));
+      return '已启用。相同事件约 ' + minutes + ' 分钟内只发送一次。任务卡死、测试发送和小号消息不受此限制。地址和密钥不在此页显示。';
+    });
+    const webhookResultLabel = result => result === 'ok' ? '成功' : result === 'fail' ? '失败' : result === 'suppressed' ? '已跳过' : '';
+    const acceptWebhookDelivery = item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      if (!['ok', 'fail', 'suppressed'].includes(item.result)) return null;
+      if (typeof item.event !== 'string' || !/^[a-z0-9_]{1,40}$/.test(item.event)) return null;
+      if (typeof item.time !== 'string' || item.time.length > 40 || /https?:|webhook|key|token|secret/i.test(item.time)) return null;
+      return {time: item.time, event: item.event, result: item.result};
+    };
+    const applyWebhookStatus = data => {
+      const source = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+      webhook.enabled = source.enabled === true;
+      const seconds = Number(source.debounce_seconds);
+      webhook.debounceSeconds = Number.isFinite(seconds) && seconds >= 0 && seconds <= 86400 ? Math.floor(seconds) : 600;
+      const rows = Array.isArray(source.deliveries) ? source.deliveries : [];
+      webhook.deliveries = rows.map(acceptWebhookDelivery).filter(Boolean).slice(0, 20);
+    };
+    const loadWebhookStatus = async () => {
+      const ticket = beginManagedRead('webhook');
+      try {
+        const res = await api.get('/api/webhook', ticket.options);
+        if (!ticket.current()) return false;
+        applyWebhookStatus(res.data);
+        return true;
+      } catch (e) {
+        if (!ticket.current()) return false;
+        console.error('Failed to load webhook status', e);
+        return false;
+      } finally { finishManagedRead(ticket); }
+    };
+    const sendTestWebhook = async () => {
+      if (!webhook.enabled || testingWebhook.value) return false;
+      const requestEpoch = managementEpoch;
+      testingWebhook.value = true;
+      try {
+        const res = await api.post('/api/webhook/test');
+        if (!managementCurrent(requestEpoch)) return false;
+        applyWebhookStatus(res.data);
+        webhook.message = res.data?.ok === true ? '测试 Webhook 已发送。' : '测试 Webhook 未送达。';
+        if (res.data?.ok === true) ElementPlus.ElMessage.success(webhook.message);
+        else ElementPlus.ElMessage.warning(webhook.message);
+        return res.data?.ok === true;
+      } catch (e) {
+        if (!managementCurrent(requestEpoch)) return false;
+        webhook.message = '测试 Webhook 未送达。';
+        ElementPlus.ElMessage.error(webhook.message);
+        await loadWebhookStatus();
+        return false;
+      } finally {
+        if (managementCurrent(requestEpoch)) testingWebhook.value = false;
+      }
+    };
+
+    const defaultAssistantStatus = () => ({
+      enabled:false, session_ok:null, session_file:false, last_poll:'', poll_seconds:90,
+      allowlist:[], recent:[], pending_replies:0, last_error:'', replyMessage:'', qr_active:false,
+    });
+    const assistant = reactive(defaultAssistantStatus());
+    const assistantReplyTo = ref('');
+    const assistantReplyText = ref('');
+    const assistantSending = ref(false);
+    const assistantLoading = ref(false);
+    const assistantQr = reactive({status:'idle', running:false, message:'', error:'', imageUrl:'', hasJob:false, canRefresh:false, verificationImageUrl:'', startUnconfirmed:false});
+    let assistantQrController = null;
+    const assistantStatusLabel = computed(() => {
+      if (!assistant.enabled) return '未启用';
+      if (assistant.session_ok === true) return '会话正常';
+      if (assistant.session_ok === false) return '登录失效';
+      return assistant.session_file ? '已有登录文件' : '尚未检查';
+    });
+    const assistantHint = computed(() => {
+      if (!assistant.enabled) return '在 .env 设置 ASSISTANT_INBOX_ENABLED=1 并重启后才会轮询。此页不显示密钥。';
+      if (!assistant.allowlist.length) return '白名单为空。服务不会打开小号浏览器，也不会转发或回复。';
+      return '只处理白名单里的昵称或 ID。文字和分享卡片标题会转发；看不到视频内容。回复每 10 秒最多一条。';
+    });
+    const acceptAssistantRecent = item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      const messageId = typeof item.message_id === 'string' ? item.message_id.slice(0, 200) : '';
+      if (!messageId) return null;
+      return {
+        message_id: messageId,
+        conversation_name: typeof item.conversation_name === 'string' ? item.conversation_name.slice(0, 80) : '',
+        message_time: typeof item.message_time === 'string' ? item.message_time.slice(0, 40) : '',
+        kind: item.kind === 'share' ? 'share' : 'text',
+        preview: typeof item.preview === 'string' ? item.preview.slice(0, 80) : '',
+      };
+    };
+    const applyAssistantStatus = data => {
+      const source = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+      assistant.enabled = source.enabled === true;
+      assistant.session_ok = source.session_ok === true ? true : source.session_ok === false ? false : null;
+      assistant.session_file = source.session_file === true;
+      assistant.last_poll = typeof source.last_poll === 'string' ? source.last_poll.slice(0, 40) : '';
+      const seconds = Number(source.poll_seconds);
+      assistant.poll_seconds = Number.isFinite(seconds) ? Math.max(60, Math.min(3600, Math.floor(seconds))) : 90;
+      assistant.allowlist = Array.isArray(source.allowlist) ? source.allowlist.filter(item => typeof item === 'string' && item.length <= 80).slice(0, 50) : [];
+      assistant.recent = (Array.isArray(source.recent) ? source.recent : []).map(acceptAssistantRecent).filter(Boolean).slice(0, 30);
+      const pending = Number(source.pending_replies);
+      assistant.pending_replies = Number.isFinite(pending) && pending >= 0 ? Math.floor(pending) : 0;
+      assistant.last_error = typeof source.last_error === 'string' ? source.last_error.slice(0, 180) : '';
+      assistant.qr_active = source.qr_active === true;
+    };
+    const loadAssistantStatus = async () => {
+      const ticket = beginManagedRead('assistant');
+      assistantLoading.value = true;
+      try {
+        const res = await api.get('/api/assistant/status', ticket.options);
+        if (!ticket.current()) return false;
+        applyAssistantStatus(res.data);
+        return true;
+      } catch (e) {
+        if (!ticket.current()) return false;
+        console.error('Failed to load assistant status', e);
+        return false;
+      } finally {
+        finishManagedRead(ticket);
+        if (ticket.current()) assistantLoading.value = false;
+      }
+    };
+    const sendAssistantReply = async () => {
+      if (!assistant.enabled || assistantSending.value) return false;
+      const to = assistantReplyTo.value.trim();
+      const text = assistantReplyText.value.trim();
+      if (!to || !text) {
+        assistant.replyMessage = '请填写回复对象和内容。';
+        return false;
+      }
+      const requestEpoch = managementEpoch;
+      assistantSending.value = true;
+      try {
+        const res = await api.post('/api/assistant/reply', {to, text});
+        if (!managementCurrent(requestEpoch)) return false;
+        assistant.replyMessage = res.data?.queued ? '回复已排队，将由小号在下一轮发出。' : '回复未能排队。';
+        if (res.data?.queued) {
+          assistantReplyText.value = '';
+          ElementPlus.ElMessage.success(assistant.replyMessage);
+        }
+        await loadAssistantStatus();
+        return res.data?.queued === true;
+      } catch (e) {
+        if (!managementCurrent(requestEpoch)) return false;
+        assistant.replyMessage = e.response?.data?.detail || '回复未能排队。';
+        ElementPlus.ElMessage.error(assistant.replyMessage);
+        return false;
+      } finally {
+        if (managementCurrent(requestEpoch)) assistantSending.value = false;
+      }
+    };
+    const uploadAssistantState = async event => {
+      const input = event.target;
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return false;
+      const requestEpoch = managementEpoch;
+      const body = new FormData();
+      body.append('file', file);
+      try {
+        await api.post('/api/assistant/state', body);
+        if (!managementCurrent(requestEpoch)) return false;
+        showIOSBanner('上传成功', '小号登录态已保存，主号凭证未改动');
+        await loadAssistantStatus();
+        return true;
+      } catch (e) {
+        if (!managementCurrent(requestEpoch)) return false;
+        showIOSBanner('上传失败', e.response?.data?.detail || '小号登录态未保存');
+        return false;
+      }
+    };
+    const updateAssistantQr = snapshot => { Object.assign(assistantQr, snapshot || {}); };
+    function getAssistantQrController() {
+      if (assistantQrController) return assistantQrController;
+      if (!window.SparkQrLogin) throw new Error('二维码登录组件未加载，请刷新页面后重试。');
+      assistantQrController = window.SparkQrLogin.create({
+        api,
+        base: '/api/assistant/qr',
+        successMessage: '小号登录成功，已保存独立登录态，不影响主号。',
+        onChange: updateAssistantQr,
+        onSuccess: async () => {
+          if (!authed.value) return;
+          await loadAssistantStatus();
+          if (authed.value) showIOSBanner('小号登录成功', '已保存小号登录态');
+        },
+      });
+      return assistantQrController;
+    }
+    function startAssistantQr() {
+      if (!assistant.enabled || assistantQr.running || !authed.value) return;
+      try { return getAssistantQrController().start(); }
+      catch (_) { Object.assign(assistantQr, {status:'failed', running:false, message:'二维码登录组件未加载，请刷新页面后重试。'}); }
+    }
+    function refreshAssistantQr() { if (assistantQrController && authed.value) return assistantQrController.refresh(); }
+    function cancelAssistantQr() { if (assistantQrController) return assistantQrController.cancel(); }
+    function assistantVerificationPointerDown(event) { if (assistantQrController && authed.value) return assistantQrController.verificationPointerDown(event); }
+    function assistantVerificationPointerMove(event) { if (assistantQrController && authed.value) return assistantQrController.verificationPointerMove(event); }
+    function assistantVerificationPointerUp(event) { if (assistantQrController && authed.value) return assistantQrController.verificationPointerUp(event); }
+    function assistantVerificationPointerCancel(event) { if (assistantQrController) return assistantQrController.verificationPointerCancel(event); }
+    function disposeAssistantQr() {
+      if (assistantQrController) { assistantQrController.dispose(); assistantQrController = null; }
+      Object.assign(assistantQr, {status:'idle', running:false, message:'', error:'', imageUrl:'', hasJob:false, canRefresh:false, verificationImageUrl:'', startUnconfirmed:false});
+    }
+
     const loadAll = async () => {
       if (managementDisposed) return false;
-      await Promise.all([loadStatus({reuse:true}), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig()]);
+      await Promise.all([loadStatus({reuse:true}), loadConfig(), loadLedger(), fetchLogs(), loadEmailConfig(), loadWebhookStatus(), loadAssistantStatus()]);
     };
 
     const pendingRetryBusy = ref(false);
@@ -1101,7 +1387,7 @@ const app = createApp({
       return name;
     };
     const toggleContactSelection = row => {
-      if (identitySendBlocked(row) && !row.selected) { ElementPlus.ElMessage.warning('会话重名、本次未采集到或存在历史发送保护，暂不能勾选。'); return false; }
+      if (identityListBlocked(row) && !row.selected) { ElementPlus.ElMessage.warning('会话重名、本次未采集到或存在历史发送保护，暂不能勾选。'); return false; }
       if (!row.entry_id) { try { uniqueLegacyName(row); } catch (e) { ElementPlus.ElMessage.warning(e.message); return false; } }
       row.selected = !row.selected;
       selectionFeedback.value = '';
@@ -1112,12 +1398,12 @@ const app = createApp({
       selectionFeedback.value = '';
       let count = 0;
       contacts.value.forEach(c => {
-        if (hasCurrentStreak(c) && !identitySendBlocked(c)) {
-          c.selected = true;
-          count++;
-        }
+        const pick = hasCurrentStreak(c) && !identityListBlocked(c);
+        c.selected = pick;
+        if (pick) count++;
       });
-      ElementPlus.ElMessage.success(`已自动勾选 ${count} 位火花好友，请点击“保存勾选配置”！`);
+      selectionFeedback.value = `已按当前火花勾选 ${count} 位好友（草稿）。请点击“保存勾选配置”后生效。`;
+      ElementPlus.ElMessage.success(selectionFeedback.value);
     };
 
     const clearSelectedFriends = () => {
@@ -1492,6 +1778,7 @@ const app = createApp({
           cancellingController.dispose();
           if (qrLoginController === cancellingController) qrLoginController = null;
         }
+        disposeAssistantQr();
         rememberLogoutPending(true);
         authed.value = false;
         localStorage.removeItem('dcs_auth_token');
@@ -1532,6 +1819,7 @@ const app = createApp({
       cancelContactSync();
       clearManagementData();
       if (qrLoginController) { qrLoginController.dispose(); qrLoginController = null; }
+      disposeAssistantQr();
       Object.assign(qrLogin, defaultQrLogin);
       qrStepMotion?.update(defaultQrLogin);
       authed.value = true;
@@ -1648,6 +1936,7 @@ const app = createApp({
         clearManagementData();
         cancelContactSync();
         if (qrLoginController) { qrLoginController.dispose(); qrLoginController=null; }
+        disposeAssistantQr();
         if (qrStepMotion) qrStepMotion.update({status:'idle',running:false,hasJob:false});
         Object.assign(qrLogin,{status:'idle',running:false,message:'请先验证网站访问权限。',error:'',imageUrl:'',deadline:0,hasJob:false,canRefresh:false,canRetrySync:false,canRetryImage:false,canRetryCleanup:false,canRetryStart:false,startUnconfirmed:false,saved:false,imageError:'',verificationImageError:'',verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,verificationBusy:false,interactionPending:false,gestureActive:false});
       }
@@ -1665,6 +1954,7 @@ const app = createApp({
       window.SparkReferenceMotion?.destroy();
       if (qrStepMotion) qrStepMotion.dispose();
       if (qrLoginController) { qrLoginController.dispose(); qrLoginController=null; }
+      disposeAssistantQr();
     });
     return {
       tab,
@@ -1673,6 +1963,8 @@ const app = createApp({
       todaySummary,
       todayResultMessage,
       todayResultDetail,
+      streakWarningMessage,
+      activeDiagnosticMessage,
       backgroundPauseMessage,
       credentialDisplay,
       sessionCheckedLabel,
@@ -1716,10 +2008,14 @@ const app = createApp({
       streakDisplay,
       streakDetail,
       streakStale,
+      streakExpiring,
+      verificationLabel,
       streakBadge,
       filteredContacts,
       searchKeyword,
       showHistoricalContacts,
+      showOnlySparkFriends,
+      hasCurrentStreak,
       historicalContactCount,
       logsContent,
       logsRefreshing,
@@ -1809,6 +2105,32 @@ const app = createApp({
       loadEmailConfig,
       saveEmailForm,
       sendTestEmail,
+      webhook,
+      webhookStatusLabel,
+      webhookHint,
+      webhookResultLabel,
+      testingWebhook,
+      sendTestWebhook,
+      loadWebhookStatus,
+      applyWebhookStatus,
+      assistant,
+      assistantStatusLabel,
+      assistantHint,
+      assistantReplyTo,
+      assistantReplyText,
+      assistantSending,
+      assistantLoading,
+      assistantQr,
+      loadAssistantStatus,
+      sendAssistantReply,
+      uploadAssistantState,
+      startAssistantQr,
+      refreshAssistantQr,
+      cancelAssistantQr,
+      assistantVerificationPointerDown,
+      assistantVerificationPointerMove,
+      assistantVerificationPointerUp,
+      assistantVerificationPointerCancel,
       emailSubView,
       openTab,
       selectEmail,

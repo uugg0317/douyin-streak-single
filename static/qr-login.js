@@ -34,6 +34,12 @@
   function create(options) {
     if (!options || !options.api) throw new Error('QR login requires a same-origin API client');
     const api = options.api;
+    const base = (typeof options.base === 'string' && /^\/api\/[a-z0-9/_-]{1,80}$/.test(options.base))
+      ? options.base.replace(/\/$/, '') : BASE;
+    const labels = {...LABELS};
+    if (typeof options.successMessage === 'string' && options.successMessage && options.successMessage.length <= 160) {
+      labels.success = options.successMessage;
+    }
     let disposed = false, generation = 0, pollTimer = null, job = null, pendingAction = null;
     let pendingStartRequest = null;
     let lastImageAt = 0, lastRevision = null, imagePending = false, notifiedJob = null, qrRequest = null;
@@ -43,7 +49,7 @@
     let serverCleanupRetrying = false;
     let verification = {ready:false,revision:null,width:0,height:0,busy:false};
     const reads = new Set();
-    let state = {status:'idle', running:false, message:LABELS.idle, error:'', imageUrl:'', deadline:0, hasJob:false, canRefresh:false,
+    let state = {status:'idle', running:false, message:labels.idle, error:'', imageUrl:'', deadline:0, hasJob:false, canRefresh:false,
       verificationImageUrl:'',verificationReady:false,verificationRevision:null,verificationWidth:0,verificationHeight:0,
       verificationBusy:false,interactionPending:false,gestureActive:false,
       statusError:'',imageError:'',verificationImageError:'',canRetrySync:false,canRetryImage:false,
@@ -117,13 +123,13 @@
       // only the QR job capability and same-origin marker authorize the job.
       const config = {headers:headers(active,true), timeout:15000};
       if (keepalive) { config.adapter='fetch'; config.fetchOptions={keepalive:true}; }
-      return api.post(BASE + '/cancel', {job_id:active.id}, config).then(response => response.data);
+      return api.post(base + '/cancel', {job_id:active.id}, config).then(response => response.data);
     }
     function apply(data, attempt, serial=null) {
       if (!current(attempt) || serial!==null && serial<minimumStatusSerial) return;
       const aliases = {qr_expired:'expired',error:'failed',verifying:'confirming',verification:'verification_required'};
       const raw = String(data?.status || 'waiting');
-      let status = aliases[raw] || (Object.prototype.hasOwnProperty.call(LABELS, raw) ? raw : 'waiting');
+      let status = aliases[raw] || (Object.prototype.hasOwnProperty.call(labels, raw) ? raw : 'waiting');
       const saved=typeof data?.saved==='boolean'?data.saved:(status==='success'||state.saved);
       const cleanupComplete=typeof data?.cleanup_complete==='boolean'?data.cleanup_complete:
         (state.status==='cleanup_pending'?false:status!=='cleanup_pending');
@@ -150,7 +156,7 @@
           verificationFrame.width!==verification.width || verificationFrame.height!==verification.height || !verification.ready))clearVerificationImage();
       } else if (state.status==='verification_required' || state.verificationImageUrl || interaction) clearVerification();
       if(status==='cleanup_pending'){clearImage();clearVerification();}
-      publish({status, running:!STOP.has(status), message:status==='verification_required'?LABELS[status]:(serverMessage || LABELS[status]),
+      publish({status, running:!STOP.has(status), message:status==='verification_required'?labels[status]:(serverMessage || labels[status]),
         deadline:deadlineMillis(data?.deadline) || state.deadline,
         saved,cleanupComplete,
         verificationReady:verification.ready,verificationBusy:verification.busy,
@@ -160,7 +166,7 @@
         stopReads(); clearImage();clearVerification();
         if (status === 'success') {
           const id = job?.id;
-          job = null; publish({hasJob:false,canRefresh:false,message:LABELS.success});
+          job = null; publish({hasJob:false,canRefresh:false,message:labels.success});
           if (id && notifiedJob !== id) {
             notifiedJob = id;
             Promise.resolve().then(() => { if (current(attempt)) return options.onSuccess?.(); }).catch(() => {
@@ -176,7 +182,7 @@
       const active=job, controller=new AbortController(), request={controller}; reads.add(controller); imagePending=true;qrRequest=request;
       lastImageAt=Date.now();lastRevision=revision;
       try {
-        const response=await api.get(BASE+'/image', {params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,timeout:10000});
+        const response=await api.get(base+'/image', {params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,timeout:10000});
         if (!current(attempt) || job?.id !== active.id || STOP.has(state.status) || state.status==='verification_required' || qrRequest!==request) return false;
         lastImageAt=Date.now();
         if (response.status === 202 || response.status === 204) return false;
@@ -202,7 +208,7 @@
       const active=job, frame={...verification},controller=new AbortController(),request={controller};
       verificationRequest=request;reads.add(controller);lastVerificationAt=Date.now();
       try {
-        const response=await api.get(BASE+'/verification-image',{params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,timeout:10000});
+        const response=await api.get(base+'/verification-image',{params:{job_id:active.id},headers:headers(active,false),responseType:'blob',signal:controller.signal,timeout:10000});
         if(!current(attempt) || job?.id!==active.id || state.status!=='verification_required' || interaction || verification.busy ||
           verificationRequest!==request || frame.revision!==verification.revision || frame.width!==verification.width || frame.height!==verification.height)return false;
         if(response.status===202 || response.status===204)return false;
@@ -233,7 +239,7 @@
       if (!current(attempt) || !job || STOP.has(state.status)) return false;
       const active=job, controller=new AbortController(),serial=++statusSerial; reads.add(controller);
       try {
-        const response=await api.get(BASE+'/status', {params:{job_id:active.id},headers:headers(active,false),signal:controller.signal,timeout:10000});
+        const response=await api.get(base+'/status', {params:{job_id:active.id},headers:headers(active,false),signal:controller.signal,timeout:10000});
         if (!current(attempt) || job?.id !== active.id || serial<minimumStatusSerial) return false;
         apply(response.data,attempt,serial);
         if (!STOP.has(state.status) && serial>=minimumStatusSerial)refreshVisibleImage(attempt,false,response.data?.qr_revision ?? null);
@@ -254,17 +260,17 @@
       const attempt=++generation, previous=job;
       statusError='';serverCleanupRetrying=false;
       stopReads(); clearImage();clearVerification(); lastImageAt=0;lastRevision=null;
-      publish({status:'starting',running:true,message:kind==='refresh'?'正在刷新二维码…':LABELS.starting,canRefresh:false,deadline:0,saved:false,cleanupComplete:true});
+      publish({status:'starting',running:true,message:kind==='refresh'?'正在刷新二维码…':labels.starting,canRefresh:false,deadline:0,saved:false,cleanupComplete:true});
       if(kind==='start'&&!pendingStartRequest)pendingStartRequest=uuid();
       const data=kind==='start'?{request_id:pendingStartRequest}:{job_id:previous.id};
-      const promise=api.post(BASE+'/'+kind,data,{headers:headers(kind==='start'?null:previous,true),timeout:15000})
+      const promise=api.post(base+'/'+kind,data,{headers:headers(kind==='start'?null:previous,true),timeout:15000})
         .then(response=>response.data).catch(async originalError=>{
           // A reload loses the in-memory capability. Recover only an already
           // blocked cleanup task; never restart it or replay a cleanup action.
           if(kind!=='start'||originalError?.response?.status!==409||!current(attempt))throw originalError;
           publish({message:'正在检查上次登录浏览器的清理状态…'});
           try{
-            const response=await api.post(BASE+'/recover-cleanup',{}, {headers:headers(null,true),timeout:15000});
+            const response=await api.post(base+'/recover-cleanup',{}, {headers:headers(null,true),timeout:15000});
             const recovered=response.data;
             if(recovered?.status!=='cleanup_pending'||recovered.cleanup_complete!==false)throw originalError;
             return recovered;
@@ -284,7 +290,7 @@
           job=previous;
           if(job){
             statusError=messageFrom(error,'刷新结果暂未确认，正在同步服务端状态。');
-            publish({status:'sync_pending',running:true,hasJob:true,canRefresh:false,message:LABELS.sync_pending});schedule(attempt);
+            publish({status:'sync_pending',running:true,hasJob:true,canRefresh:false,message:labels.sync_pending});schedule(attempt);
           }else {
             const status=error?.response?.status;
             const uncertain=kind==='start'&&(!status||status>=500);
@@ -303,7 +309,7 @@
     async function cancel() {
       if (disposed || pendingAction?.kind==='cleanup' || state.status==='cancelling' || !job && !pendingAction) return false;
       const attempt=++generation, action=pendingAction, previous=job;
-      statusError='';stopReads();clearImage();clearVerification();publish({status:'cancelling',running:true,canRefresh:false,message:LABELS.cancelling});
+      statusError='';stopReads();clearImage();clearVerification();publish({status:'cancelling',running:true,canRefresh:false,message:labels.cancelling});
       let active=previous;
       try {
         if(action) { try { active=handle(await action.promise,action.previous); } catch (_) {} }
@@ -317,7 +323,7 @@
       } catch(error) {
         if(current(attempt)){
           statusError='取消请求暂未确认，正在同步状态；可以重试同步或稍后再次取消。';
-          publish({status:job?'sync_pending':'failed',running:!!job,message:job?LABELS.sync_pending:statusError,hasJob:!!job,canRefresh:false});
+          publish({status:job?'sync_pending':'failed',running:!!job,message:job?labels.sync_pending:statusError,hasJob:!!job,canRefresh:false});
           if(job)schedule(attempt);
         }
         return false;
@@ -342,7 +348,7 @@
       const attempt=generation,active=job;
       minimumStatusSerial=statusSerial+1;
       stopReads();statusError='';
-      const promise=api.post(BASE+'/retry-cleanup',{job_id:active.id},{headers:headers(active,true),timeout:15000}).then(response=>response.data);
+      const promise=api.post(base+'/retry-cleanup',{job_id:active.id},{headers:headers(active,true),timeout:15000}).then(response=>response.data);
       const action={promise,previous:active,attempt,kind:'cleanup'};pendingAction=action;publish({});
       try{
         const data=await promise;
@@ -421,7 +427,7 @@
       const submittedJob=job;
       try {
         // A genuine pointer gesture is submitted once. Network errors never replay it.
-        const response=await api.post(BASE+'/verification-action',{job_id:submittedJob.id,action_id:uuid(),verification_revision:active.revision,action,points},
+        const response=await api.post(base+'/verification-action',{job_id:submittedJob.id,action_id:uuid(),verification_revision:active.revision,action,points},
           {headers:headers(submittedJob,true),timeout:15000});
         if(!current(active.attempt) || interaction!==active || job?.id!==submittedJob.id)return false;
         active.phase='queued';minimumStatusSerial=statusSerial+1;

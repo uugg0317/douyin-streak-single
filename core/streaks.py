@@ -11,6 +11,7 @@ MIN_GROWTH_WINDOW_DAYS = 1  # Same-day observations may straddle a platform upda
 logger = logging.getLogger('douyin-cloud-streak')
 RESET_DISMISS_BUSINESS_DAYS = 3  # User-kept values do not prompt again for the next three business dates.
 STREAK_STALE_AFTER_DAYS = 3  # UI warning policy, not a claim about platform expiry rules.
+EXPIRING_WITHIN_DAYS = 3
 _RESET_KEYS = ('streak_suspect_value','streak_suspect_since','streak_suspect_count',
                'streak_suspect_last_at','streak_suspect_last_sync','streak_suspect_source',
                'streak_suspect_direction')
@@ -175,6 +176,18 @@ def parse_streak(value) -> int | None:
     return int(matched[1]) if matched else None
 
 
+def expiry_days(label) -> int | None:
+    matched = re.fullmatch(r'([0-9]+)\s*天后消失', str(label or '').strip())
+    if not matched:
+        return None
+    return int(matched.group(1))
+
+
+def expiring_label(label, *, within: int = EXPIRING_WITHIN_DAYS) -> bool:
+    days = expiry_days(label)
+    return days is not None and days <= within
+
+
 def observe_streak(entry: dict, observed: dict, now, *, sync_id: str | None = None) -> None:
     """A failed observation must not rewrite the last positively confirmed value."""
     entry['streak_seen_at'] = now.isoformat(timespec='seconds')
@@ -227,14 +240,16 @@ def observe_streak(entry: dict, observed: dict, now, *, sync_id: str | None = No
                 entry.setdefault('streak_growth_changed_at', entry['streak_confirmed_at'])
         entry.pop('streak_history_unverified', None)
         entry.update(streak_days=value, streak_status='confirmed',
-                     streak_confirmed_at=entry['streak_seen_at'], streak_source=observed.get('streak_source'))
+                     streak_confirmed_at=entry['streak_seen_at'], streak_source=observed.get('streak_source'),
+                     streak_at_risk=observed.get('streak_at_risk') is True)
     elif status == 'none' and observed.get('streak_none_evidence') is True:
         _clear_reset_evidence(entry)
         if not trusted_history or entry['streak_days'] != 0:
             entry.update(streak_growth_base_days=0, streak_growth_base_at=entry['streak_seen_at'],
                          streak_growth_changed_at=entry['streak_seen_at'])
         entry.update(streak_days=0, streak_status='none',
-                     streak_confirmed_at=entry['streak_seen_at'], streak_source=observed.get('streak_source'))
+                     streak_confirmed_at=entry['streak_seen_at'], streak_source=observed.get('streak_source'),
+                     streak_at_risk=False)
         entry.pop('streak_history_unverified', None)
     else:
         entry['streak_status'] = status if status in {'suspect','reset_pending','correction_pending'} else 'unknown'

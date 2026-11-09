@@ -111,6 +111,50 @@ def _summarize_run(result: dict) -> dict:
     }
 
 
+def note_send_resolved(entry_id: str, name: str, effect: str) -> None:
+    """人工确认或失败核对之后，改掉最近一轮结果里过期的待核对项。"""
+    if effect not in {"confirmed", "failed"} or not entry_id:
+        return
+    with _lock:
+        rt = load_runtime()
+        result = rt.get("last_run")
+        if not isinstance(result, dict):
+            return
+        skipped = []
+        removed = False
+        for item in result.get("skipped") or []:
+            if isinstance(item, dict) and item.get("entry_id") == entry_id and item.get("code") in {
+                "delivery_unconfirmed", "unconfirmed_today",
+            }:
+                removed = True
+                continue
+            skipped.append(item)
+        if not removed:
+            return
+        result["skipped"] = skipped
+        if not any(isinstance(item, dict) and item.get("code") == "delivery_unconfirmed" for item in skipped):
+            result["delivery_unconfirmed"] = False
+        if effect == "confirmed":
+            ok = list(result.get("ok") or [])
+            if name and name not in ok:
+                ok.append(name)
+            result["ok"] = ok
+            entries = [item for item in result.get("ok_entries") or [] if isinstance(item, dict)]
+            if not any(item.get("entry_id") == entry_id for item in entries):
+                entries.append({"entry_id": entry_id, "name": name})
+            result["ok_entries"] = entries
+        elif effect == "failed":
+            failed = [item for item in result.get("failed") or [] if isinstance(item, dict)]
+            if not any(item.get("entry_id") == entry_id for item in failed):
+                failed.append({
+                    "entry_id": entry_id, "name": name, "code": "delivery_verified_failed",
+                    "retryable": False, "reason": "已按人工核对标记，不会自动重发",
+                })
+            result["failed"] = failed
+        rt["last_run"] = result
+        _save(rt)
+
+
 def record_run(result: dict) -> None:
     with _lock:
         rt = load_runtime()
